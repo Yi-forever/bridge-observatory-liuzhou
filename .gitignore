@@ -1,0 +1,8 @@
+node_modules/
+.edge-*/
+presentation/render/
+presentation/slide-*.png
+preview-*.png
+*.zip
+.DS_Store
+Thumbs.db

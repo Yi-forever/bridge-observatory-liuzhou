@@ -1,0 +1,10 @@
+{
+  "name": "bridge-observatory-liuzhou",
+  "version": "1.0.0",
+  "private": true,
+  "description": "桥见柳州：城市桥梁数字漫游与结构科普平台",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

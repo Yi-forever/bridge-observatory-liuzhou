@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="桥见柳州——面向青少年的城市桥梁结构数字漫游与科普平台。"
+    />
+    <meta name="theme-color" content="#0c2935" />
+    <title>桥见柳州｜城市桥梁数字漫游与结构科普</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230c2935'/%3E%3Cpath d='M8 43h48M15 43c3-17 10-27 17-27s14 10 17 27M21 36v7M32 24v19M43 36v7' fill='none' stroke='%23ff9c63' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M8 50c7-3 11-3 18 0s11 3 17 0 9-3 14 0' fill='none' stroke='%2363b7b2' stroke-width='2'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="page-texture" aria-hidden="true"></div>
+
+    <dialog class="guide-dialog" id="guideDialog" aria-labelledby="guideTitle">
+      <button class="guide-close" id="closeGuide" type="button" aria-label="关闭使用指南">×</button>
+      <p class="section-kicker">QUICK START / 01</p>
+      <h2 id="guideTitle">三步读懂一座桥</h2>
+      <p class="guide-lead">从城市桥梁出发，用一次操作看见隐藏在桥面之下的传力逻辑。</p>
+      <div class="guide-steps">
+        <article>
+          <span>01</span>
+          <strong>选择桥梁</strong>
+          <p>在沿江地图中选择五座桥梁，查看年代、桥型与城市故事。</p>
+        </article>
+        <article>
+          <span>02</span>
+          <strong>观察构件</strong>
+          <p>点击桥面、主梁、拱肋或拉索，识别它们在传力链中的职责。</p>
+        </article>
+        <article>
+          <span>03</span>
+          <strong>动手实验</strong>
+          <p>调节相对教学荷载，观察桥面挠度、传力状态与响应等级。</p>
+        </article>
+      </div>
+      <div class="guide-actions">
+        <button class="button button-primary" id="beginGuide" type="button">开始探索</button>
+        <button class="button button-ghost guide-skip" id="skipGuide" type="button">稍后再看</button>
+      </div>
+    </dialog>
+
+    <header class="site-header" id="siteHeader">
+      <a class="brand" href="#top" aria-label="桥见柳州，回到首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48">
+            <path d="M4 34h40M9 34c2-12 7-19 15-19s13 7 15 19M15 29v5M24 21v13M33 29v5" />
+            <path d="M4 39c5-2 8-2 13 0s8 2 13 0 8-2 14 0" class="brand-wave" />
+          </svg>
+        </span>
+        <span class="brand-type">
+          <strong>桥见柳州</strong>
+          <small>BRIDGE OBSERVATORY</small>
+        </span>
+      </a>
+
+      <nav class="main-nav" aria-label="页面导航">
+        <a href="#map">沿江识桥</a>
+        <a href="#lab">结构实验室</a>
+        <a href="#compare">桥型对比</a>
+        <a href="#quiz">知识挑战</a>
+        <a href="#about">关于项目</a>
+      </nav>
+
+      <button class="progress-pill" id="progressPill" type="button" aria-label="查看探索进度">
+        <span class="progress-dot"></span>
+        <span>已解锁 <strong id="headerVisitedCount">1</strong>/5</span>
+      </button>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy reveal">
+          <p class="eyebrow"><span></span> BRIDGES × ENGINEERING × LIUZHOU</p>
+          <h1>
+            桥见柳州
+            <span>让结构，被看见。</span>
+          </h1>
+          <p class="hero-lead">
+            从一辆车压在桥面上的那一刻开始，读懂主梁、拱肋与斜拉索如何把力量传向两岸。
+            一次可以旋转、拆解、对比与实验的城市桥梁数字漫游。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#map">
+              开始沿江漫游
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M3 9h11M10 4l5 5-5 5" />
+              </svg>
+            </a>
+            <a class="button button-ghost" href="#lab">打开结构实验室</a>
+          </div>
+          <dl class="hero-facts" aria-label="项目数据">
+            <div>
+              <dt>05</dt>
+              <dd>代表性桥梁</dd>
+            </div>
+            <div>
+              <dt>03</dt>
+              <dd>核心结构实验</dd>
+            </div>
+            <div>
+              <dt>∞</dt>
+              <dd>一条柳江的故事</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="hero-visual reveal reveal-delay">
+          <div class="hero-orbit orbit-one" aria-hidden="true"></div>
+          <div class="hero-orbit orbit-two" aria-hidden="true"></div>
+          <div class="hero-scene">
+            <svg viewBox="0 0 760 600" role="img" aria-label="柳江山水与城市桥梁的插画">
+              <defs>
+                <linearGradient id="heroSky" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#163e4b" />
+                  <stop offset="1" stop-color="#0b2834" />
+                </linearGradient>
+                <linearGradient id="heroWater" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#276c73" />
+                  <stop offset="1" stop-color="#0d4655" />
+                </linearGradient>
+                <linearGradient id="heroBridge" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#ffcf81" />
+                  <stop offset="1" stop-color="#ff7a52" />
+                </linearGradient>
+                <filter id="heroGlow" x="-80%" y="-80%" width="260%" height="260%">
+                  <feGaussianBlur stdDeviation="9" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <rect width="760" height="600" rx="38" fill="url(#heroSky)" />
+              <circle cx="623" cy="108" r="45" fill="#f8d382" opacity=".14" />
+              <circle cx="623" cy="108" r="28" fill="#f8d382" opacity=".92" />
+              <path d="M0 317 83 247l74 60 67-95 92 78 70-119 96 107 73-73 91 62 114-91v258H0Z" fill="#164753" opacity=".76" />
+              <path d="M0 351c82-52 119-32 185-9 68 24 108 11 172-21 98-49 164-8 228 20 63 28 111 6 175-24v135H0Z" fill="#0f333e" />
+              <g opacity=".72">
+                <path d="M38 344v-72h22v72M73 344v-101h31v101M119 344v-55h18v55M602 341v-65h20v65M638 341v-113h34v113M686 341v-51h21v51" fill="#4f8790" />
+                <g fill="#f6c16d">
+                  <rect x="81" y="260" width="5" height="7" />
+                  <rect x="91" y="270" width="5" height="7" />
+                  <rect x="646" y="258" width="5" height="7" />
+                  <rect x="655" y="275" width="5" height="7" />
+                  <rect x="662" y="286" width="5" height="7" />
+                </g>
+              </g>
+              <path d="M0 435c96-20 150 14 245 4 117-13 158-44 260-27 91 15 169 42 255 13v175H0Z" fill="url(#heroWater)" />
+              <g fill="none" stroke="#85c9c6" stroke-linecap="round">
+                <path d="M64 470c39-9 71-8 110 1M257 512c62-12 119-10 188 4M494 475c51-10 106-8 172 4M95 555c77-11 126-8 187 2M529 552c44-8 101-6 157 3" opacity=".38" />
+                <path d="M278 438c61-8 112-2 162 2M575 450c37-5 68-3 104 2" opacity=".22" />
+              </g>
+              <g class="hero-bridge" filter="url(#heroGlow)">
+                <path d="M104 350h552" stroke="url(#heroBridge)" stroke-width="15" stroke-linecap="round" />
+                <path d="M157 349C230 214 343 174 381 174c56 0 160 54 220 175" fill="none" stroke="#f4b463" stroke-width="9" stroke-linecap="round" />
+                <g stroke="#efb663" stroke-width="3" opacity=".8">
+                  <path d="M236 257v92M294 217v132M350 188v161M414 188v161M475 218v131M534 258v91M596 311v38" />
+                </g>
+                <g fill="#ffd58d" opacity=".8">
+                  <circle cx="381" cy="174" r="7" />
+                  <circle cx="236" cy="257" r="3" />
+                  <circle cx="534" cy="258" r="3" />
+                </g>
+              </g>
+              <g class="hero-cars">
+                <g transform="translate(246 323)">
+                  <g class="hero-car-right">
+                    <rect width="38" height="15" rx="7" fill="#f5f1e9" />
+                    <rect x="8" y="-7" width="20" height="9" rx="5" fill="#f5f1e9" />
+                    <circle cx="9" cy="16" r="4" fill="#0e2935" />
+                    <circle cx="30" cy="16" r="4" fill="#0e2935" />
+                  </g>
+                </g>
+                <g transform="translate(485 323) scale(.85)">
+                  <g class="hero-car-left">
+                    <rect width="38" height="15" rx="7" fill="#f3a26f" />
+                    <rect x="8" y="-7" width="20" height="9" rx="5" fill="#f3a26f" />
+                    <circle cx="9" cy="16" r="4" fill="#0e2935" />
+                    <circle cx="30" cy="16" r="4" fill="#0e2935" />
+                  </g>
+                </g>
+              </g>
+              <g transform="translate(63 87)">
+                <rect width="172" height="78" rx="16" fill="#f5f0e6" opacity=".96" />
+                <text x="18" y="29" fill="#7a827e" font-size="12" font-family="Arial, sans-serif">LIVE STRUCTURE</text>
+                <text x="18" y="54" fill="#102e39" font-size="18" font-weight="700">一桥一故事</text>
+                <circle cx="146" cy="54" r="8" fill="#ff7a52" />
+              </g>
+            </svg>
+            <div class="hero-float-card">
+              <span class="float-index">01</span>
+              <div>
+                <small>此刻观察</small>
+                <strong>荷载如何传到桥墩？</strong>
+              </div>
+            </div>
+          </div>
+          <div class="hero-seal" aria-hidden="true">
+            <span>LIUZHOU</span>
+            <strong>桥</strong>
+            <span>CITY OF BRIDGES</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section map-section" id="map">
+        <div class="section-heading reveal">
+          <div>
+            <p class="section-kicker">01 / RIVER JOURNEY</p>
+            <h2>沿江识桥</h2>
+          </div>
+          <p>
+            柳州被称为“桥梁博物馆”。点击江岸上的坐标，从最早的城市跨江公路桥出发，
+            沿时间与结构两条线索读懂五座桥。
+          </p>
+        </div>
+
+        <div class="map-layout">
+          <div class="map-card reveal">
+            <div class="map-topline">
+              <span class="live-badge"><i></i> 互动地图</span>
+              <span>示意路线 · 非真实比例</span>
+            </div>
+            <div class="river-map" id="riverMap" aria-label="柳州代表性桥梁互动地图">
+              <svg class="river-art" viewBox="0 0 900 560" aria-hidden="true">
+                <defs>
+                  <linearGradient id="mapWater" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#c6e4da" />
+                    <stop offset=".55" stop-color="#7fc3c1" />
+                    <stop offset="1" stop-color="#3f8f9a" />
+                  </linearGradient>
+                  <filter id="mapShadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#295a55" flood-opacity=".2" />
+                  </filter>
+                </defs>
+                <rect width="900" height="560" fill="#f1eee4" />
+                <g opacity=".5" stroke="#d9d3c5">
+                  <path d="M0 80h900M0 160h900M0 240h900M0 320h900M0 400h900M0 480h900" />
+                  <path d="M100 0v560M200 0v560M300 0v560M400 0v560M500 0v560M600 0v560M700 0v560M800 0v560" />
+                </g>
+                <g fill="#dfe8de" filter="url(#mapShadow)">
+                  <path d="M-30 120 100 39l97 69-45 113-142 29Z" />
+                  <path d="m659 32 151 19 77 118-80 84-142-37-44-101Z" />
+                  <path d="m63 376 102-47 71 80-33 112-125 14-52-79Z" />
+                  <path d="m649 352 167-34 118 79-49 142-172 4-81-82Z" />
+                </g>
+                <g fill="#d3cabc" opacity=".55">
+                  <rect x="150" y="184" width="65" height="31" rx="4" />
+                  <rect x="231" y="152" width="48" height="64" rx="4" />
+                  <rect x="599" y="190" width="71" height="28" rx="4" />
+                  <rect x="686" y="158" width="38" height="61" rx="4" />
+                  <rect x="237" y="390" width="54" height="35" rx="4" />
+                  <rect x="553" y="404" width="77" height="30" rx="4" />
+                </g>
+                <path
+                  d="M-72 504c135-170 227-87 337-160 78-51 90-156 213-177 133-24 202 88 317 25 78-42 121-117 210-135"
+                  fill="none"
+                  stroke="url(#mapWater)"
+                  stroke-width="91"
+                  stroke-linecap="round"
+                  filter="url(#mapShadow)"
+                />
+                <path
+                  d="M-72 504c135-170 227-87 337-160 78-51 90-156 213-177 133-24 202 88 317 25 78-42 121-117 210-135"
+                  fill="none"
+                  stroke="#e8f5ef"
+                  stroke-width="2"
+                  stroke-dasharray="7 15"
+                  opacity=".65"
+                />
+                <g fill="#557c75" font-family="'Microsoft YaHei', sans-serif" font-size="13" opacity=".72">
+                  <text x="86" y="93">柳北</text>
+                  <text x="732" y="91">河东</text>
+                  <text x="116" y="530">城中</text>
+                  <text x="739" y="513">鱼峰</text>
+                </g>
+                <text x="430" y="92" fill="#87a49d" font-size="11" letter-spacing="3" font-family="Arial, sans-serif">LIUJIANG RIVER</text>
+              </svg>
+              <div class="river-markers" id="riverMarkers"></div>
+              <div class="map-compass" aria-hidden="true">
+                <span>N</span>
+                <i></i>
+              </div>
+            </div>
+            <div class="map-legend">
+              <span><i class="legend-line"></i> 互动桥梁</span>
+              <span><i class="legend-dot"></i> 已探索</span>
+              <span class="legend-tip">提示：可用 Tab 键逐桥浏览</span>
+            </div>
+          </div>
+
+          <aside class="bridge-profile reveal reveal-delay" id="bridgeProfile" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <section class="section lab-section" id="lab">
+        <div class="section-heading reveal">
+          <div>
+            <p class="section-kicker">02 / STRUCTURE LAB</p>
+            <h2>桥梁结构实验室</h2>
+          </div>
+          <p>
+            旋转模型、点亮构件、改变车辆荷载，观察不同桥型如何把力传向大地。
+            这是一套教学简化模型，用于理解结构原理，不用于工程计算。
+          </p>
+        </div>
+
+        <div class="lab-shell reveal">
+          <div class="lab-main">
+            <div class="lab-toolbar">
+              <div class="lab-toolbar-left">
+                <div class="view-switcher" role="group" aria-label="显示模式">
+                  <button class="view-button is-active" type="button" data-view="structure" aria-pressed="true">结构模式</button>
+                  <button class="view-button" type="button" data-view="force" aria-pressed="false">受力实验</button>
+                  <button class="view-button" type="button" data-view="night" aria-pressed="false">夜景模式</button>
+                </div>
+                <button class="flow-launch" id="startFlow" type="button" aria-pressed="false">
+                  <span class="flow-launch-dot"></span>
+                  跟随力流
+                </button>
+              </div>
+              <div class="stage-tools" role="group" aria-label="模型工具">
+                <button class="tool-button" id="explodeToggle" type="button" aria-pressed="false">
+                  结构拆解
+                </button>
+                <div class="camera-controls" role="group" aria-label="视角控制">
+                  <button class="icon-button" id="rotateLeft" type="button" aria-label="向左旋转视角">↺</button>
+                  <button class="icon-button" id="rotateRight" type="button" aria-label="向右旋转视角">↻</button>
+                  <button class="icon-button reset-view" id="resetView" type="button" aria-label="复正视视角">复位</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="bridge-stage view-structure" id="bridgeStage">
+              <div class="stage-topline">
+                <span id="stageBridgeName">柳江大桥</span>
+                <span class="stage-hint">拖动模型可旋转视角</span>
+              </div>
+              <div class="bridge-scene" id="bridgeScene" aria-live="polite"></div>
+              <div class="flow-panel" id="flowPanel" aria-live="polite" hidden>
+                <div class="flow-panel-head">
+                  <span>跟随力流</span>
+                  <button class="callout-close" id="closeFlow" type="button" aria-label="退出力流引导">×</button>
+                </div>
+                <div class="flow-dots" id="flowDots" aria-hidden="true"></div>
+                <strong id="flowTitle">桥面承接</strong>
+                <p id="flowText"></p>
+                <div class="flow-panel-actions">
+                  <button class="flow-nav-button" id="flowPrev" type="button">上一步</button>
+                  <span id="flowCounter">1 / 4</span>
+                  <button class="flow-nav-button is-primary" id="flowNext" type="button">下一步</button>
+                </div>
+              </div>
+              <div class="stage-callout" id="partCallout" hidden>
+                <button type="button" class="callout-close" id="closeCallout" aria-label="关闭构件说明">×</button>
+                <small id="calloutPart">构件</small>
+                <strong id="calloutTitle">主梁</strong>
+                <p id="calloutText"></p>
+              </div>
+              <div class="stage-readout">
+                <span><i class="readout-dot"></i> 教学简化模型</span>
+                <span>拖拽旋转 / 点击构件</span>
+              </div>
+              <div class="stage-floor" aria-hidden="true"></div>
+            </div>
+
+            <div class="stage-tip">
+              <span class="tip-number">TIP</span>
+              <p id="bridgeTip">点击桥面、桥墩或主梁，查看它们在传力路径中的角色。</p>
+            </div>
+          </div>
+
+          <aside class="lab-panel">
+            <div class="lab-panel-head">
+              <div>
+                <span class="mini-label">SELECTED BRIDGE</span>
+                <h3 id="labBridgeName">柳江大桥</h3>
+              </div>
+              <span class="structure-chip" id="labBridgeType">梁桥</span>
+            </div>
+
+            <div class="lab-stats">
+              <div>
+                <span>建成</span>
+                <strong id="labBridgeYear">1968</strong>
+              </div>
+              <div>
+                <span>关键信息</span>
+                <strong id="labBridgeSize">608 m</strong>
+              </div>
+              <div>
+                <span>结构家族</span>
+                <strong id="labBridgeFamily">梁桥</strong>
+              </div>
+            </div>
+
+            <div class="force-lab">
+              <div class="force-heading">
+                <div>
+                  <span class="mini-label">LOAD CONTROL</span>
+                  <h4>车辆荷载实验</h4>
+                </div>
+                <output id="loadOutput" for="loadSlider">35%</output>
+              </div>
+              <label class="sr-only" for="loadSlider">调节车辆荷载</label>
+              <input id="loadSlider" class="load-slider" type="range" min="0" max="100" value="35" />
+              <div class="slider-labels" aria-hidden="true">
+                <span>轻载</span>
+                <span>常规</span>
+                <span>重载</span>
+              </div>
+              <p class="load-scale-note">0—100%为相对演示荷载，不代表真实载重。</p>
+              <div class="response-grid">
+                <div class="response-item">
+                  <span>传力路径</span>
+                  <div class="signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+                  <strong id="pathStatus">清晰</strong>
+                </div>
+                <div class="response-item">
+                  <span>挠度变化（示意）</span>
+                  <div class="meter"><i id="deflectionMeter"></i></div>
+                  <strong id="deflectionStatus">平稳</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="part-explorer">
+              <div class="part-explorer-head">
+                <span class="mini-label">PARTS</span>
+                <span>点击查看构件</span>
+              </div>
+              <div class="part-buttons" id="partButtons"></div>
+            </div>
+
+            <div class="lab-note">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3Zm-4 16h8M9 22h6" />
+              </svg>
+              <p><strong>观察提示</strong><span id="labObservation">荷载先作用于桥面，再通过主梁传至桥墩和基础。</span></p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section compare-section" id="compare">
+        <div class="section-heading reveal">
+          <div>
+            <p class="section-kicker">03 / BRIDGE COMPARISON</p>
+            <h2>把桥型差异放在同一张观察卡上</h2>
+          </div>
+          <p>
+            五座桥不只是五个名字。比较主要受力方式、关键构件与典型场景，
+            再用同一组问题重新观察它们。
+          </p>
+        </div>
+        <div class="compare-intro reveal">
+          <span>点击任意桥型卡，返回对应实验模型</span>
+          <div class="compare-key">
+            <i></i>
+            可交互
+          </div>
+        </div>
+        <div class="compare-grid" id="compareGrid"></div>
+      </section>
+
+      <section class="section quiz-section" id="quiz">
+        <div class="quiz-art reveal" aria-hidden="true">
+          <span class="quiz-label">FIELD NOTES / 06</span>
+          <div class="quiz-bridge-sketch">
+            <svg viewBox="0 0 520 400">
+              <path d="M34 289h450M74 289c55-133 119-195 187-195s128 68 187 195" />
+              <path d="M123 233v56M178 194v95M235 166v123M291 166v123M346 195v94M402 235v54" />
+              <path d="M34 320c64-15 112-14 171 2s119 15 181-1 112-14 155 1" />
+              <circle cx="260" cy="94" r="5" />
+              <circle cx="123" cy="233" r="5" />
+              <circle cx="402" cy="235" r="5" />
+            </svg>
+          </div>
+          <h3>你看桥，<br />桥也“看见”力。</h3>
+          <p>完成 6 道观察题，领取你的桥梁探索员档案。</p>
+          <div class="quiz-concepts">
+            <span>压力</span>
+            <span>拉力</span>
+            <span>弯矩</span>
+            <span>传力</span>
+          </div>
+        </div>
+
+        <div class="quiz-card reveal reveal-delay">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker">04 / KNOWLEDGE CHECK</p>
+              <h2>桥梁观察挑战</h2>
+            </div>
+            <div class="quiz-score-pill">得分 <strong id="quizLiveScore">0</strong></div>
+          </div>
+          <div class="quiz-progress" aria-label="答题进度">
+            <span id="quizProgressBar"></span>
+          </div>
+          <div id="quizContent" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="section about-section" id="about">
+        <div class="about-copy reveal">
+          <p class="section-kicker">05 / ABOUT THE PROJECT</p>
+          <h2>一座城市，<br />就是一座开放的工程教室。</h2>
+          <p>
+            “桥见柳州”把城市地标转化为可交互的科普内容。我们希望学生不只记住桥的名字，
+            还能看见桥面之下的结构逻辑，理解工程、城市与人的关系。
+          </p>
+          <div class="project-meta">
+            <div>
+              <span>作品方向</span>
+              <strong>智慧教育与科普创作</strong>
+            </div>
+            <div>
+              <span>核心用户</span>
+              <strong>中学生 · 教师 · 城市访客</strong>
+            </div>
+            <div>
+              <span>技术形态</span>
+              <strong>Web互动科普应用</strong>
+            </div>
+          </div>
+          <div class="project-actions">
+            <button class="text-action-button" id="showGuideButton" type="button">查看使用指南</button>
+            <button class="text-action-button" id="resetProgress" type="button">清除探索记录</button>
+          </div>
+        </div>
+
+        <div class="source-panel reveal reveal-delay">
+          <div class="source-head">
+            <div>
+              <span class="mini-label">PUBLIC SOURCES</span>
+              <h3>公开资料来源</h3>
+            </div>
+            <div class="source-meta">
+              <span class="source-count">04</span>
+              <small>校核于 2026-10-19</small>
+            </div>
+          </div>
+          <ul class="source-list">
+            <li>
+              <span>01</span>
+              <div>
+                <a href="http://www.gxnews.com.cn/staticpages/20180917/newgx5b9ee61c-17651300.shtml" target="_blank" rel="noreferrer">
+                  一城建成19座跨江大桥，柳州成为桥梁博物馆
+                </a>
+                <small>广西新闻网 · 2018-09-17</small>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <a href="https://www.thepaper.cn/newsDetail_forward_16077854" target="_blank" rel="noreferrer">
+                  凤凰岭大桥今日通车，跨越3城区仅需8分钟
+                </a>
+                <small>澎湃新闻 · 柳州1号 · 2021-12-30</small>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <a href="https://news.sohu.com/a/507612954_121106875" target="_blank" rel="noreferrer">
+                  柳州，一座城，一座桥梁博物馆
+                </a>
+                <small>柳州市文化广电和旅游局资料 · 2021-12-12</small>
+              </div>
+            </li>
+            <li>
+              <span>04</span>
+              <div>
+                <a href="https://www.cmit.cn" target="_blank" rel="noreferrer">
+                  2026年第十四届全国大学生数字媒体科技作品及创意竞赛
+                </a>
+                <small>竞赛官网</small>
+              </div>
+            </li>
+          </ul>
+          <p class="source-disclaimer">
+            桥型与结构动画为面向科普的简化表达，不替代专业工程资料；具体数据以公开资料及后续专业核校为准。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <span class="brand-mark small" aria-hidden="true">
+          <svg viewBox="0 0 48 48">
+            <path d="M4 34h40M9 34c2-12 7-19 15-19s13 7 15 19M15 29v5M24 21v13M33 29v5" />
+            <path d="M4 39c5-2 8-2 13 0s8 2 13 0 8-2 14 0" class="brand-wave" />
+          </svg>
+        </span>
+        <div>
+          <strong>桥见柳州</strong>
+          <p>让城市成为一本可以亲手翻开的工程书。</p>
+        </div>
+      </div>
+      <div class="footer-meta">
+        <span>Bridge Observatory · 2026</span>
+        <a href="#top">回到顶部 ↑</a>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
