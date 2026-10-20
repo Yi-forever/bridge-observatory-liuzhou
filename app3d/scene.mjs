@@ -233,8 +233,11 @@ export async function createScene({ canvas, labelLayer, onPick }) {
 
   function onWheel(event) {
     event.preventDefault();
+    // 乘法缩放：近处步长细、远处步长粗。线性缩放在 4～420 这个跨度里
+    // 会变成"远处滚半天不动、近处一下就撞墙"。
+    const factor = Math.pow(1.0022, event.deltaY);
     controls.goalDistance = clamp(
-      controls.goalDistance + event.deltaY * 0.045,
+      controls.goalDistance * factor,
       LIMITS.distanceMin,
       LIMITS.distanceMax
     );
