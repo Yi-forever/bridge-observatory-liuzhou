@@ -125,7 +125,7 @@ function describe(state) {
   return {
     kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: "真实河道与五桥位置（OpenStreetMap）。拖动环视，点击桥梁把镜头拉近看结构。"
+    sub: "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮缩放，点击桥梁把镜头拉近看结构。"
   };
 }
 

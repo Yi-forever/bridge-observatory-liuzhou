@@ -1,14 +1,22 @@
 /**
- * 场景编排（M1）：渲染器、受约束的镜头、拾取、标签、聚焦。
+ * 场景编排（M1）：渲染器、轨道镜头、拾取、标签、聚焦。
  *
- * 镜头刻意做成"受限轨道"而不是自由飞行：
- *   方位角 ±36°、俯角 31°–59°、距离 50–108，禁止平移。
- * 目的是让用户始终看得懂"我在城市的哪一侧"，并随时可一键复位。
+ * 镜头是"自由轨道"：
+ *   - 方位角：**无限**（可以绕一圈转到任何一侧，指针拖多远转多远）
+ *   - 俯仰角：8.6°～86.6° 仰角（限制在水平面以上，见下）
+ *   - 距离：4～420（足够近看单桥构件，也足够远看整条江湾）
+ * 不做平移（不用右键/中键拖），避免把场景拖出屏幕。
+ *
+ * 为什么俯角有下限：相机降到与地面持平以下会钻到地形底部——
+ * 地面是单面平面，从下面看会直接看穿，露出镜像的场景，视觉上就是坏的。
+ * 所以下限定在水平面以上 8.6°，这已经是很低的地平线视角了。
  */
 
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "./atlas.mjs";
 import { createLabels } from "./labels.mjs";
+
+const TAU = Math.PI * 2;
 
 const HOME = {
   azimuth: 0,
@@ -17,11 +25,10 @@ const HOME = {
 };
 
 const LIMITS = {
-  azimuth: 0.8,
-  polarMin: 0.34,
-  polarMax: 1.05,
-  distanceMin: 60,
-  distanceMax: 320
+  polarMin: 0.06,
+  polarMax: 1.42,
+  distanceMin: 4,
+  distanceMax: 420
 };
 
 /** 聚焦距离：真实桥只有 3–7 个单位长，必须拉近才看得清结构。 */
@@ -36,6 +43,14 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+/** 把 from 旋到与 to 等价但路径最短的角度，避免复位时连转好几圈。 */
+function shortestAngle(from, to) {
+  let delta = (to - from) % TAU;
+  if (delta > Math.PI) delta -= TAU;
+  if (delta < -Math.PI) delta += TAU;
+  return from + delta;
+}
+
 export async function createScene({ canvas, labelLayer, onPick }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -46,7 +61,7 @@ export async function createScene({ canvas, labelLayer, onPick }) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x071a22);
-  scene.fog = new THREE.Fog(0x071a22, 210, 640);
+  scene.fog = new THREE.Fog(0x071a22, 180, 950);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 2600);
 
@@ -116,7 +131,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   }
 
   function resetView() {
-    controls.goalAzimuth = HOME.azimuth;
+    // 选最短路回去，不然转过几圈之后复位会原地狂转
+    controls.goalAzimuth = shortestAngle(controls.goalAzimuth, HOME.azimuth);
     controls.goalPolar = HOME.polar;
     controls.goalDistance = HOME.distance;
     controls.goalTarget.copy(homeTarget);
@@ -177,11 +193,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
       lastX = event.clientX;
       lastY = event.clientY;
       dragDistance += Math.abs(dx) + Math.abs(dy);
-      controls.goalAzimuth = clamp(
-        controls.goalAzimuth - dx * 0.0045,
-        -LIMITS.azimuth,
-        LIMITS.azimuth
-      );
+      // 方位角不设限：想从哪一侧看就转到哪一侧
+      controls.goalAzimuth -= dx * 0.0045;
       controls.goalPolar = clamp(
         controls.goalPolar + dy * 0.0035,
         LIMITS.polarMin,

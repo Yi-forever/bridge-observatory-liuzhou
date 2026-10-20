@@ -24,7 +24,8 @@ import {
 
 const VERTICAL = 2.2;
 const BANK_WIDTH = 9;
-const GROUND_MARGIN = 80;
+/** 地面向外铺多远。镜头可以自由转到任意一侧，地面必须比相机活动范围更大。 */
+const GROUND_MARGIN = 240;
 const CITY_BLOCKS = 46;
 
 const MIN_BRIDGE_LENGTH = 2.2;
