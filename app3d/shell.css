@@ -1,0 +1,376 @@
+/* 3D 外壳样式（M0）。与 styles.css 分离，避免影响现有 2D 页面。 */
+
+:root {
+  --a3d-bg: #071a22;
+  --a3d-panel: #0b232c;
+  --a3d-ink: #e8f3f2;
+  --a3d-muted: #8fb3b6;
+  --a3d-accent: #ff9c63;
+  --a3d-teal: #63b7b2;
+  --a3d-line: rgba(159, 216, 224, 0.18);
+  --a3d-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+/* 视图切换 */
+
+.legacy-root[hidden] {
+  display: none !important;
+}
+
+body.app3d-active {
+  overflow: hidden;
+}
+
+/* 3D 容器 */
+
+.app3d {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 8%, #12313d 0%, var(--a3d-bg) 58%, #041118 100%);
+}
+
+.app3d[hidden] {
+  display: none !important;
+}
+
+.app3d-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.app3d-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(115% 95% at 50% 45%, transparent 45%, rgba(3, 14, 19, 0.62) 100%);
+}
+
+/* 顶部栏 */
+
+.app3d-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 18px clamp(16px, 3vw, 30px);
+}
+
+.app3d-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--a3d-ink);
+  text-decoration: none;
+}
+
+.app3d-brand-mark svg {
+  width: 34px;
+  height: 34px;
+  fill: none;
+  stroke: var(--a3d-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app3d-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.app3d-brand-text strong {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.app3d-brand-text small {
+  font-size: 9.5px;
+  letter-spacing: 0.26em;
+  color: var(--a3d-teal);
+}
+
+.app3d-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.app3d-nav-item {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: var(--a3d-muted);
+  text-decoration: none;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.app3d-nav-item:hover,
+.app3d-nav-item:focus-visible {
+  color: var(--a3d-ink);
+  border-color: var(--a3d-line);
+}
+
+.app3d-nav-item.is-active {
+  color: #08181f;
+  background: var(--a3d-accent);
+  font-weight: 600;
+}
+
+.app3d-ghost,
+.app3d-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--a3d-line);
+  background: rgba(7, 26, 34, 0.6);
+  color: var(--a3d-ink);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.app3d-ghost:hover,
+.app3d-ghost:focus-visible {
+  border-color: var(--a3d-accent);
+  color: var(--a3d-accent);
+}
+
+.app3d-btn {
+  border-color: transparent;
+  background: var(--a3d-accent);
+  color: #08181f;
+  font-weight: 600;
+}
+
+.app3d-btn:hover,
+.app3d-btn:focus-visible {
+  background: #ffb281;
+}
+
+/* 左下 HUD */
+
+.app3d-hud {
+  position: absolute;
+  left: clamp(16px, 3vw, 30px);
+  bottom: clamp(16px, 3vw, 30px);
+  z-index: 3;
+  max-width: min(460px, 82vw);
+}
+
+.app3d-kicker {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--a3d-teal);
+}
+
+.app3d-title {
+  margin: 0.42em 0 0.28em;
+  font-size: clamp(26px, 3.4vw, 44px);
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  color: var(--a3d-ink);
+  text-shadow: 0 6px 26px rgba(0, 0, 0, 0.55);
+}
+
+.app3d-sub {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--a3d-muted);
+}
+
+.app3d-bridges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app3d-bridge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--a3d-line);
+  background: rgba(7, 26, 34, 0.55);
+  color: var(--a3d-ink);
+  text-decoration: none;
+  font-size: 12.5px;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.app3d-bridge-link i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot, var(--a3d-teal));
+}
+
+.app3d-bridge-link:hover,
+.app3d-bridge-link:focus-visible {
+  border-color: var(--a3d-accent);
+}
+
+.app3d-bridge-link.is-active {
+  background: var(--a3d-accent);
+  border-color: transparent;
+  color: #08181f;
+  font-weight: 600;
+}
+
+.app3d-bridge-link.is-active i {
+  background: #08181f;
+}
+
+/* 右下状态行（M0 调试与自检用） */
+
+.app3d-status {
+  position: absolute;
+  right: clamp(16px, 3vw, 30px);
+  bottom: clamp(16px, 3vw, 30px);
+  z-index: 3;
+  margin: 0;
+  max-width: 46vw;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.6;
+  text-align: right;
+  color: rgba(143, 179, 182, 0.72);
+}
+
+/* 列表视图下的返回按钮 */
+
+.return-3d {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 156, 99, 0.45);
+  background: rgba(11, 35, 44, 0.94);
+  color: var(--a3d-accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--a3d-shadow);
+  backdrop-filter: blur(8px);
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.return-3d:hover,
+.return-3d:focus-visible {
+  background: rgba(255, 156, 99, 0.16);
+  transform: translateY(-1px);
+}
+
+/* 启动提示（file:// 或 3D 加载失败） */
+
+.boot-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 17, 24, 0.86);
+  backdrop-filter: blur(10px);
+}
+
+.boot-notice[hidden] {
+  display: none !important;
+}
+
+.boot-notice-card {
+  width: min(460px, 100%);
+  padding: 26px clamp(20px, 3vw, 30px);
+  border-radius: 18px;
+  border: 1px solid var(--a3d-line);
+  background: var(--a3d-panel);
+  color: var(--a3d-ink);
+  box-shadow: var(--a3d-shadow);
+}
+
+.boot-notice-card h2 {
+  margin: 0 0 0.6em;
+  font-size: 19px;
+  letter-spacing: 0.02em;
+}
+
+.boot-notice-card p {
+  margin: 0 0 1.1em;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--a3d-muted);
+}
+
+.boot-notice-card code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(159, 216, 224, 0.12);
+  color: var(--a3d-accent);
+  font-size: 12.5px;
+}
+
+.boot-notice-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 窄屏收敛 */
+
+@media (max-width: 720px) {
+  .app3d-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .app3d-nav {
+    justify-content: flex-start;
+  }
+
+  .app3d-status {
+    display: none;
+  }
+
+  .app3d-hud {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .return-3d,
+  .app3d-nav-item,
+  .app3d-bridge-link {
+    transition: none;
+  }
+}

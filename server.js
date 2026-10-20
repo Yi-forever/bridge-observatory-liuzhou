@@ -10,12 +10,21 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".webp": "image/webp"
+  ".webp": "image/webp",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".bin": "application/octet-stream",
+  ".hdr": "application/octet-stream",
+  ".ktx2": "image/ktx2",
+  ".wasm": "application/wasm",
+  ".woff2": "font/woff2"
 };
 
 const server = http.createServer((request, response) => {
