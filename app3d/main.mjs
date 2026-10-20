@@ -14,12 +14,14 @@ const els = {
   legacyRoot: document.getElementById("legacyRoot"),
   app3d: document.getElementById("app3d"),
   canvas: document.getElementById("sceneCanvas"),
+  labels: document.getElementById("sceneLabels"),
   kicker: document.getElementById("sceneKicker"),
   title: document.getElementById("sceneTitle"),
   sub: document.getElementById("sceneSub"),
   status: document.getElementById("sceneStatus"),
   bridgeList: document.getElementById("sceneBridgeList"),
   btnBrowse: document.getElementById("btnBrowse"),
+  btnReset: document.getElementById("btnResetView"),
   guide: document.getElementById("guideDialog"),
   bootNotice: document.getElementById("bootNotice"),
   bootTitle: document.getElementById("bootNoticeTitle"),
@@ -100,30 +102,30 @@ function describe(state) {
     const bridge = BRIDGE_BY_ID.get(state.bridgeId);
     if (bridge) {
       return {
-        kicker: `M0 / BRIDGE · ${bridge.order}`,
+        kicker: `M1 / BRIDGE · ${bridge.order}`,
         title: bridge.name,
-        sub: `${bridge.year} 年 · ${bridge.type} · 单桥 3D 场景建设中（M2），先看占位体。`
+        sub: `${bridge.year} 年 · ${bridge.type} · 已在总览中定位，精细构件交互见 M2。`
       };
     }
   }
   if (state.view === "lab") {
     return {
-      kicker: "M0 / STRUCTURE LAB",
+      kicker: "M1 / STRUCTURE LAB",
       title: "桥梁结构实验室",
-      sub: "建筑与室内交互建设中（M3），当前先指向现有 2D 实验室页面。"
+      sub: "建筑已就位 · 室内交互建设中（M3）。可先切到列表视图使用现有实验室页面。"
     };
   }
   if (state.view === "archive") {
     return {
-      kicker: "M0 / ARCHIVE",
+      kicker: "M1 / ARCHIVE",
       title: "桥梁档案馆",
-      sub: "档案展示与知识挑战建设中（M3），当前先指向现有对比与答题页面。"
+      sub: "建筑已就位 · 档案与答题建设中（M3）。可先切到列表视图使用现有对比与答题页面。"
     };
   }
   return {
-    kicker: "M0 / SHELL",
+    kicker: "M1 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: "3D 城市总览建设中 · M1 呈现河道、地形与五桥低模，当前为占位舞台。"
+    sub: "五座桥沿江铺开。点击桥梁查看结构，点击建筑进入场馆，拖动可环视。"
   };
 }
 
@@ -181,11 +183,26 @@ function showBootNotice(title, bodyHtml) {
   els.bootNotice.hidden = false;
 }
 
+function handlePick(pick) {
+  if (!pick) return;
+  if (pick.type === "bridge") {
+    window.location.hash = `#bridge/${pick.id}`;
+    return;
+  }
+  if (pick.type === "building" && (pick.id === "lab" || pick.id === "archive")) {
+    window.location.hash = `#${pick.id}`;
+  }
+}
+
 function initScene() {
   if (sceneInitPromise) return sceneInitPromise;
   sceneInitPromise = (async () => {
     const module = await import("./scene.mjs");
-    const instance = await module.createScene({ canvas: els.canvas });
+    const instance = await module.createScene({
+      canvas: els.canvas,
+      labelLayer: els.labels,
+      onPick: handlePick
+    });
     scene = instance;
     return instance;
   })();
@@ -282,6 +299,12 @@ function boot() {
   if (els.btnBrowse) {
     els.btnBrowse.addEventListener("click", () => {
       window.location.hash = "#browse";
+    });
+  }
+
+  if (els.btnReset) {
+    els.btnReset.addEventListener("click", () => {
+      if (scene) scene.resetView();
     });
   }
 

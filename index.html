@@ -623,6 +623,7 @@
     <div class="app3d" id="app3d" hidden>
       <canvas class="app3d-canvas" id="sceneCanvas" role="img" aria-label="柳江 3D 城市场景"></canvas>
       <div class="app3d-vignette" aria-hidden="true"></div>
+      <div class="app3d-labels" id="sceneLabels" aria-hidden="true"></div>
 
       <header class="app3d-top">
         <a class="app3d-brand" href="#atlas" aria-label="桥见柳州 · 3D 城市总览">
@@ -642,6 +643,7 @@
           <a class="app3d-nav-item" data-nav="atlas" href="#atlas">城市总览</a>
           <a class="app3d-nav-item" data-nav="lab" href="#lab">结构实验室</a>
           <a class="app3d-nav-item" data-nav="archive" href="#archive">档案馆</a>
+          <button class="app3d-ghost" id="btnResetView" type="button">重置视角</button>
           <button class="app3d-ghost" id="btnBrowse" type="button">列表视图</button>
         </nav>
       </header>
