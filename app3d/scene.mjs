@@ -5,6 +5,7 @@
  *   - 方位角：**无限**（可以绕一圈转到任何一侧，指针拖多远转多远）
  *   - 俯仰角：8.6°～86.6° 仰角（限制在水平面以上，见下）
  *   - 距离：4～420（足够近看单桥构件，也足够远看整条江湾）
+ *   - 缩放：**以光标下的世界点为不动点**，不是绕屏幕中心（见 onWheel）
  * 不做平移（不用右键/中键拖），避免把场景拖出屏幕。
  *
  * 为什么俯角有下限：相机降到与地面持平以下会钻到地形底部——
@@ -97,6 +98,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+  const zoomPointer = new THREE.Vector2();
+  const zoomPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let pointerInside = false;
   let pointerDirty = false;
 
@@ -153,6 +156,33 @@ export async function createScene({ canvas, labelLayer, onPick }) {
         if (node.userData && node.userData.pick) return node.userData.pick;
         node = node.parent;
       }
+    }
+    return null;
+  }
+
+  /**
+   * 光标正下方那个世界点的坐标。
+   * 先打真实几何（地面、江面、桥、楼），打不中再落到 y=0 平面上；
+   * 视线指向天空时返回 null，此时退化为绕轨道中心缩放。
+   */
+  function pointUnderPointer(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    zoomPointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    zoomPointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(zoomPointer, camera);
+
+    const hits = raycaster.intersectObject(atlas.root, true);
+    for (const hit of hits) {
+      // 跳过不可见的拾取代理，它们不是真实表面
+      if (hit.object.material && hit.object.material.visible === false) continue;
+      if (hit.point.distanceTo(camera.position) > 1500) continue;
+      return hit.point.clone();
+    }
+
+    const fallback = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(zoomPlane, fallback)) {
+      if (fallback.distanceTo(camera.position) <= 1500) return fallback;
     }
     return null;
   }
@@ -236,11 +266,23 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     // 乘法缩放：近处步长细、远处步长粗。线性缩放在 4～420 这个跨度里
     // 会变成"远处滚半天不动、近处一下就撞墙"。
     const factor = Math.pow(1.0022, event.deltaY);
-    controls.goalDistance = clamp(
+    const nextDistance = clamp(
       controls.goalDistance * factor,
       LIMITS.distanceMin,
       LIMITS.distanceMax
     );
+    const scale = nextDistance / controls.goalDistance;
+    if (scale === 1) return;
+
+    const anchor = pointUnderPointer(event.clientX, event.clientY);
+    if (anchor) {
+      // 以光标下的世界点为不动点缩放：
+      // 目标点 T ← A + (T - A)·scale，于是相机 C ← A + (C - A)·scale，
+      // 即相机沿"光标点→相机"这条线移动，视线方向不变，
+      // 因此光标下的那个点在屏幕上分毫不动。
+      controls.goalTarget.sub(anchor).multiplyScalar(scale).add(anchor);
+    }
+    controls.goalDistance = nextDistance;
   }
 
   canvas.addEventListener("pointerdown", onPointerDown);
