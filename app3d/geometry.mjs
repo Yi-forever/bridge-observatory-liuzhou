@@ -6,6 +6,21 @@
 import * as THREE from "../vendor/three/three.module.min.js";
 
 /**
+ * 由真实河道折线生成平滑曲线。
+ * 用 centripetal 参数化：壶城那种发卡弯不会像 uniform 那样过冲自交。
+ */
+export function curveFromPolyline(points) {
+  const vectors = points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  if (vectors.length < 2) {
+    return new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-40, 0, 0),
+      new THREE.Vector3(40, 0, 0)
+    ]);
+  }
+  return new THREE.CatmullRomCurve3(vectors, false, "centripetal", 0.5);
+}
+
+/**
  * 由桥梁坐标构成一条穿过全部桥梁的平滑曲线，并在两端向外延伸。
  * @param {Array<{x:number, z:number}>} points 世界坐标点（按里程排序）
  * @param {number} extension 两端延伸长度

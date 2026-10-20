@@ -102,30 +102,30 @@ function describe(state) {
     const bridge = BRIDGE_BY_ID.get(state.bridgeId);
     if (bridge) {
       return {
-        kicker: `M1 / BRIDGE · ${bridge.order}`,
+        kicker: `M2 / BRIDGE · ${bridge.order}`,
         title: bridge.name,
-        sub: `${bridge.year} 年 · ${bridge.type} · 已在总览中定位，精细构件交互见 M2。`
+        sub: `${bridge.year} 年 · ${bridge.type} · 已按真实坐标与桥轴定位，镜头已拉近。`
       };
     }
   }
   if (state.view === "lab") {
     return {
-      kicker: "M1 / STRUCTURE LAB",
+      kicker: "M2 / STRUCTURE LAB",
       title: "桥梁结构实验室",
       sub: "建筑已就位 · 室内交互建设中（M3）。可先切到列表视图使用现有实验室页面。"
     };
   }
   if (state.view === "archive") {
     return {
-      kicker: "M1 / ARCHIVE",
+      kicker: "M2 / ARCHIVE",
       title: "桥梁档案馆",
       sub: "建筑已就位 · 档案与答题建设中（M3）。可先切到列表视图使用现有对比与答题页面。"
     };
   }
   return {
-    kicker: "M1 / CITY ATLAS",
+    kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: "五座桥沿江铺开。点击桥梁查看结构，点击建筑进入场馆，拖动可环视。"
+    sub: "真实河道与五桥位置（OpenStreetMap）。拖动环视，点击桥梁把镜头拉近看结构。"
   };
 }
 
@@ -136,6 +136,7 @@ function updateStatus(state) {
   else if (!webglAvailable) parts.push("WebGL 不可用");
   else parts.push("WebGL 就绪");
   if (scene) parts.push(`three r${scene.revision}`);
+  parts.push("1 单位 = 100 m");
   els.status.textContent = parts.join(" · ");
 }
 

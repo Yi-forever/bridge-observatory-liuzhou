@@ -12,17 +12,22 @@ import { createLabels } from "./labels.mjs";
 
 const HOME = {
   azimuth: 0,
-  polar: 0.72,
-  distance: 74,
-  target: new THREE.Vector3(0, 0, 2)
+  polar: 0.6,
+  distance: 150
 };
 
 const LIMITS = {
-  azimuth: 0.63,
-  polarMin: 0.52,
-  polarMax: 1.03,
-  distanceMin: 50,
-  distanceMax: 108
+  azimuth: 0.8,
+  polarMin: 0.34,
+  polarMax: 1.05,
+  distanceMin: 60,
+  distanceMax: 320
+};
+
+/** 聚焦距离：真实桥只有 3–7 个单位长，必须拉近才看得清结构。 */
+const FOCUS = {
+  bridge: 9,
+  building: 14
 };
 
 const CLICK_THRESHOLD = 6;
@@ -41,20 +46,22 @@ export async function createScene({ canvas, labelLayer, onPick }) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x071a22);
-  scene.fog = new THREE.Fog(0x071a22, 96, 250);
+  scene.fog = new THREE.Fog(0x071a22, 210, 640);
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 700);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 2600);
 
   scene.add(new THREE.HemisphereLight(0x9fd8e0, 0x08161c, 0.9));
   const sun = new THREE.DirectionalLight(0xffd9b0, 1.15);
-  sun.position.set(58, 82, 36);
+  sun.position.set(120, 190, 90);
   scene.add(sun);
   const fill = new THREE.DirectionalLight(0x5f9fb0, 0.35);
-  fill.position.set(-46, 30, -38);
+  fill.position.set(-110, 70, -90);
   scene.add(fill);
 
   const atlas = buildAtlas();
   scene.add(atlas.root);
+
+  const homeTarget = new THREE.Vector3(atlas.center.x, 0, atlas.center.z);
 
   const labels = labelLayer
     ? createLabels(labelLayer, atlas.labels, {
@@ -69,8 +76,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     goalAzimuth: HOME.azimuth,
     goalPolar: HOME.polar,
     goalDistance: HOME.distance,
-    target: HOME.target.clone(),
-    goalTarget: HOME.target.clone()
+    target: homeTarget.clone(),
+    goalTarget: homeTarget.clone()
   };
 
   const raycaster = new THREE.Raycaster();
@@ -112,7 +119,7 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     controls.goalAzimuth = HOME.azimuth;
     controls.goalPolar = HOME.polar;
     controls.goalDistance = HOME.distance;
-    controls.goalTarget.copy(HOME.target);
+    controls.goalTarget.copy(homeTarget);
   }
 
   /* ---------------- 拾取 ---------------- */
@@ -237,7 +244,7 @@ export async function createScene({ canvas, labelLayer, onPick }) {
       const entry = atlas.bridges.get(state.bridgeId);
       if (entry) {
         const anchor = entry.labelAnchor;
-        focusOn({ x: anchor.x, y: 0.6, z: anchor.z }, 58);
+        focusOn({ x: anchor.x, y: 0.35, z: anchor.z }, FOCUS.bridge);
       }
       labels?.setActive(`bridge:${state.bridgeId}`);
       return;
@@ -247,8 +254,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
       const entry = atlas.buildings.get(state.view);
       if (entry) {
         focusOn(
-          { x: entry.group.position.x, y: 1.2, z: entry.group.position.z },
-          48
+          { x: entry.group.position.x, y: 0.6, z: entry.group.position.z },
+          FOCUS.building
         );
       }
       labels?.setActive(null);

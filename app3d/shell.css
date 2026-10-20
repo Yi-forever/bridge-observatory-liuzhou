@@ -262,6 +262,31 @@ body.app3d-active {
   color: rgba(143, 179, 182, 0.72);
 }
 
+/* 数据署名（ODbL 要求可见） */
+
+.app3d-credit {
+  position: absolute;
+  right: clamp(16px, 3vw, 30px);
+  bottom: calc(clamp(16px, 3vw, 30px) + 34px);
+  z-index: 3;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: rgba(143, 179, 182, 0.55);
+}
+
+.app3d-credit a {
+  color: rgba(143, 179, 182, 0.78);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(143, 179, 182, 0.4);
+}
+
+.app3d-credit a:hover {
+  color: var(--a3d-accent);
+  border-bottom-color: var(--a3d-accent);
+}
+
 /* 列表视图下的返回按钮 */
 
 .return-3d {
