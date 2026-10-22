@@ -77,6 +77,26 @@ let pendingPart = null;
 let labTimer = null;
 /** 荷载读数文案（由场景回传）。 */
 let labLoadText = "";
+/** 荷载地址防抖定时器（拖滑杆时不反复写历史）。 */
+let loadCommitTimer = null;
+
+/**
+ * 只改"同视图内的参数"（step / load / colors / explode / exp）。
+ *
+ * 关键：用 history.replaceState 而不是 location.hash。
+ * 给 location.hash 赋值是一次**浏览器导航**，会触发 fragment 滚动定位——
+ * 目标 id 不存在时浏览器会把滚动容器拉回顶部，于是拖载荷滑杆时词条会"跳回最上面"。
+ * replaceState 只换地址、不导航、不滚动；重绘由这里自己调。
+ */
+function applyStateParams(patch) {
+  const state = router ? router.current : null;
+  if (!state) return;
+  const next = { ...state, ...patch };
+  router.replace(next);
+  latestState = next;
+  if (next.view === "browse") renderBrowse();
+  else renderApp3d(next);
+}
 
 function stopLabPlayback() {
   if (labTimer !== null) {
@@ -563,20 +583,21 @@ function boot() {
       onSelectBridge: (bridgeId) => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({
-          ...state,
+        // 换实验对象仍在单桥视图内：走参数通道，避免触发浏览器导航滚动
+        applyStateParams({
           view: "bridge",
           bridgeId,
           exp: true,
           step: 0,
-          exploded: false
+          exploded: false,
+          load: null
         });
       },
       onSelectStep: (index) => {
         const state = router ? router.current : null;
         if (!state) return;
         stopLabPlayback();
-        window.location.hash = toHash({ ...state, step: index, exp: true });
+        applyStateParams({ step: index, exp: true });
       },
       onTogglePlay: () => {
         const state = router ? router.current : null;
@@ -591,7 +612,7 @@ function boot() {
         let cursor = Number.isInteger(state.step) ? state.step : -1;
         const advance = () => {
           cursor = (cursor + 1) % flow.length;
-          window.location.hash = toHash({ ...router.current, step: cursor, exp: true });
+          applyStateParams({ step: cursor, exp: true });
         };
         advance();
         labTimer = window.setInterval(advance, 1800);
@@ -600,29 +621,40 @@ function boot() {
       onToggleExplode: () => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({ ...state, exploded: !state.exploded, exp: true });
+        applyStateParams({ exploded: !state.exploded, exp: true });
       },
       onSetLoad: (value) => {
         const state = router ? router.current : null;
         if (!state) return;
         const load = Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100) / 100;
-        window.location.hash = toHash({ ...state, load: load === 0 ? null : load, exp: true });
+
+        // 每一 tick 都重绘太贵、写地址更会打断拖拽：先把视觉落到场景上，
+        // 地址用 replaceState 防抖写入（不导航、不滚动）。
+        const next = { ...state, load: load === 0 ? null : load, exp: true };
+        router.replace(next);
+        latestState = next;
+        applyExperimentVisuals(next);
+
+        if (loadCommitTimer !== null) window.clearTimeout(loadCommitTimer);
+        loadCommitTimer = window.setTimeout(() => {
+          loadCommitTimer = null;
+        }, 200);
       },
       onToggleColors: () => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({ ...state, colors: !state.colors, exp: true });
+        applyStateParams({ colors: !state.colors, exp: true });
       },
       onToggleCollapsed: () => {
         // 收起/展开实验词条：只翻转 exp，其余实验状态保持不变
         const state = router ? router.current : null;
         if (!state || state.view !== "bridge") return;
-        window.location.hash = toHash({ ...state, exp: !state.exp });
+        applyStateParams({ exp: !state.exp });
       },
       onOpenBridge: () => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({ ...state, exp: false });
+        applyStateParams({ exp: false });
       },
       onOpen2d: () => openLegacyLab()
     });
@@ -651,7 +683,7 @@ function boot() {
     els.btnExperiment.addEventListener("click", () => {
       const state = router ? router.current : null;
       if (!state || state.view !== "bridge") return;
-      window.location.hash = toHash({ ...state, exp: !state.exp });
+      applyStateParams({ exp: !state.exp });
     });
   }
   if (els.btnReset) {

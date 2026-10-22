@@ -1415,6 +1415,56 @@ for (const bridge of GEO.bridges) {
   delete globalThis.window;
 }
 
+/* ---------------- 参数类交互不得触发浏览器导航 ---------------- */
+
+/**
+ * 踩过的坑：载荷滑杆每个 input 都写 `location.hash`，那是一次浏览器导航——
+ * 目标 id 不存在的片段会让浏览器把滚动容器拉回顶部，于是拖滑杆时词条"跳回最上面"。
+ *
+ * 现在同视图内的参数（step / load / colors / explode / exp）统一走 applyStateParams，
+ * 内部用 history.replaceState（不导航、不滚动）再自己重绘。
+ * 这里静态守住：createLab 的回调块里不许出现 location.hash。
+ */
+{
+  const read = (relative) =>
+    fs.readFileSync(new URL(relative, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+
+  const main = read("../app3d/main.mjs");
+
+  const callBlock = (source, name) => {
+    const start = source.indexOf(`${name}(`);
+    if (start < 0) return "";
+    const open = source.indexOf("(", start);
+    let depth = 0;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "(") depth += 1;
+      else if (source[i] === ")") {
+        depth -= 1;
+        if (depth === 0) return source.slice(open, i + 1);
+      }
+    }
+    return "";
+  };
+
+  const labOptions = callBlock(main, "createLab");
+
+  checkTrue("存在 applyStateParams 通道", main.includes("function applyStateParams("));
+  checkTrue(
+    "参数通道用的是 replaceState（不导航）",
+    /history\.replaceState/.test(main) || /router\.replace\(/.test(main)
+  );
+  checkTrue(
+    "实验词条的回调不直接写 location.hash",
+    !labOptions.includes("window.location.hash"),
+    "同视图内的参数应走 applyStateParams"
+  );
+  checkTrue(
+    "实验词条用到 applyStateParams",
+    (labOptions.match(/applyStateParams\(/g) || []).length >= 4,
+    `count=${(labOptions.match(/applyStateParams\(/g) || []).length}`
+  );
+}
+
 /* ---------------- 面板回调接线完整性 ---------------- */
 
 /**
