@@ -479,8 +479,13 @@ export function createPanel(host, options = {}) {
     renderCompare();
   }
 
-  /** 标记当前高亮构件（null = 清除）。 */
-  function setActivePart(partId) {
+  /**
+   * 标记当前高亮构件（null = 清除）。
+   *
+   * scroll=false 用于"场景自动同步"：载荷滑杆每一 tick 都会重放力流步骤，
+   * 若每次都 scrollIntoView，会把正在读答题/来源的用户一路拽回"构件"分区。
+   */
+  function setActivePart(partId, { scroll = true } = {}) {
     activePart = partId;
     if (!els) return;
     for (const [id, row] of els.rows) row.classList.toggle("is-active", id === partId);
@@ -497,7 +502,7 @@ export function createPanel(host, options = {}) {
     const text = document.createElement("span");
     text.textContent = part ? part.description : "这个构件在资料里没有单独条目，仅作结构示意。";
     els.current.append(strong, text);
-    if (els.rows.has(partId)) {
+    if (scroll && els.rows.has(partId)) {
       els.rows.get(partId).scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
@@ -519,7 +524,7 @@ export function createPanel(host, options = {}) {
         compareTarget = null;
         build();
       }
-      setActivePart(options2.partId || null);
+      setActivePart(options2.partId || null, { scroll: Boolean(options2.scroll) });
     },
     hide() {
       host.hidden = true;
@@ -533,9 +538,9 @@ export function createPanel(host, options = {}) {
       if (!els) return;
       for (const [id, row] of els.rows) row.classList.toggle("is-modeled", modeled.has(id));
     },
-    focusPart(partId) {
+    focusPart(partId, options3 = {}) {
       if (!els) return;
-      setActivePart(partId);
+      setActivePart(partId, options3);
     },
     get isOpen() {
       return Boolean(els) && !host.hidden;

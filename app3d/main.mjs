@@ -308,8 +308,10 @@ function initScene() {
       // 受力演示每走一步，资料卡跟到那个构件
       onPartFocus: (bridgeId, partId) => {
         if (!panel) return;
-        if (partId) panel.focusPart(partId);
-        else if (bridgeId === null) panel.focusPart(null);
+        // 自动同步（力流步骤重放）不滚动词条：载荷滑杆每 tick 都会走到这里，
+        // 带滚动的话用户刚滚到"答题"就会被拽回"构件"。
+        if (partId) panel.focusPart(partId, { scroll: false });
+        else if (bridgeId === null) panel.focusPart(null, { scroll: false });
       }
     });
     scene = instance;
@@ -474,16 +476,30 @@ function experimentReadout(state, flow) {
  * 把实验的视觉状态落到场景上：受力配色 / 力流步骤 / 荷载与挠度。
  * 必须在 scene.setState 之后调用，否则会被 setState 里的高亮逻辑覆盖。
  */
+/** 上一次落到场景上的高亮组合：相同就不重复重建幽灵网格。 */
+let lastVisuals = { bridgeId: null, step: null, colors: null };
+
 function applyExperimentVisuals(state) {
   if (!scene || !state || state.view !== "bridge" || !state.exp || !state.bridgeId) return;
   const current = experimentState(state);
   const bridgeId = state.bridgeId;
+  const step = Number.isInteger(current.step) ? current.step : -1;
 
-  if (current.colors) {
-    scene.colorizeForce(bridgeId, true);
-  } else {
-    scene.colorizeForce(bridgeId, false);
-    scene.setForceStep(bridgeId, Number.isInteger(current.step) ? current.step : -1);
+  // 载荷滑杆每 tick 都会进来；只有"桥/步/配色"变了才需要重画高亮。
+  // 幂等之后，既省掉每帧重建幽灵网格，也避免回调链被高频触发。
+  const sameHighlight =
+    lastVisuals.bridgeId === bridgeId &&
+    lastVisuals.step === step &&
+    lastVisuals.colors === current.colors;
+
+  if (!sameHighlight) {
+    lastVisuals = { bridgeId, step, colors: current.colors };
+    if (current.colors) {
+      scene.colorizeForce(bridgeId, true);
+    } else {
+      scene.colorizeForce(bridgeId, false);
+      scene.setForceStep(bridgeId, step);
+    }
   }
 
   const info = scene.setLabLoad ? scene.setLabLoad(bridgeId, current.load) : null;

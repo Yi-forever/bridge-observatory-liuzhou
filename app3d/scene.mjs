@@ -224,13 +224,23 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
    * 手动定位到力流第 index 步（实验室用）。
    * index 为空/-1 时只清高亮，不启动定时器。
    */
+  let lastForceStep = { bridgeId: null, index: -2 };
+
   function setForceStep(bridgeId, index) {
     const order = FORCE_FLOW[bridgeId];
     if (!bridgeId || !order || !Number.isInteger(index) || index < 0 || index >= order.length) {
-      atlas.clearPartHighlight();
-      if (onPartFocus) onPartFocus(null, null, null);
+      if (lastForceStep.bridgeId !== null || lastForceStep.index !== -1) {
+        lastForceStep = { bridgeId: null, index: -1 };
+        atlas.clearPartHighlight();
+        if (onPartFocus) onPartFocus(null, null, null);
+      }
       return null;
     }
+    // 同一个桥的同一步重复调用是空操作：载荷滑杆每 tick 都会重放当前步，
+    // 不幂等的话会不断重建高亮网格、并反复触发 onPartFocus。
+    if (lastForceStep.bridgeId === bridgeId && lastForceStep.index === index) return order[index];
+
+    lastForceStep = { bridgeId, index };
     const partId = order[index];
     const hit = atlas.highlightPart(bridgeId, partId, "force");
     if (onPartFocus) onPartFocus(bridgeId, hit ? partId : null, hit ? hit.label : null);

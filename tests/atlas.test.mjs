@@ -1465,6 +1465,121 @@ for (const bridge of GEO.bridges) {
   );
 }
 
+/* ---------------- 自动同步不得抢走用户滚动位置 ---------------- */
+
+/**
+ * 踩过的坑：载荷滑杆每一 tick 都会重放"当前力流步骤"，而重放会调 onPartFocus →
+ * 资料词条 focusPart → scrollIntoView。于是用户刚滚到"答题"，一拖滑杆就被拽回"构件"。
+ *
+ * 两条约束：
+ *   1. 自动同步（onPartFocus）必须 scroll:false；只有用户主动点构件/点 3D 才滚；
+ *   2. 同一桥同一步重复应用是空操作（幂等），否则每 tick 都重建高亮网格。
+ */
+{
+  const read = (relative) =>
+    fs.readFileSync(new URL(relative, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+
+  const main = read("../app3d/main.mjs");
+  const scene = read("../app3d/scene.mjs");
+  const panel = read("../app3d/panel.mjs");
+
+  // 1) 源码约束
+  checkTrue(
+    "资料词条的 focusPart 支持关闭滚动",
+    /focusPart\(partId, options3 = \{\}\)/.test(panel) && /scroll && els\.rows\.has\(partId\)/.test(panel)
+  );
+  checkTrue(
+    "main 的自动同步传 scroll:false",
+    /panel\.focusPart\(partId, \{ scroll: false \}\)/.test(main),
+    "onPartFocus 里必须关掉滚动"
+  );
+  checkTrue("场景的力流步骤是幂等的", /lastForceStep/.test(scene));
+  checkTrue("实验视觉是幂等的", /lastVisuals/.test(main));
+
+  // 2) 行为：桩 DOM 下 scroll:false 不触发 scrollIntoView，默认触发
+  const scrolled = [];
+  const makeElement = (tag) => {
+    const element = {
+      tag,
+      className: "",
+      textContent: "",
+      _html: "",
+      hidden: false,
+      disabled: false,
+      type: "",
+      title: "",
+      scope: "",
+      href: "",
+      dataset: {},
+      children: [],
+      listeners: {},
+      classList: {
+        set: new Set(),
+        add(name) { this.set.add(name); },
+        remove(name) { this.set.delete(name); },
+        toggle(name, force) {
+          const on = force === undefined ? !this.set.has(name) : force;
+          if (on) this.set.add(name); else this.set.delete(name);
+          return on;
+        },
+        contains(name) { return this.set.has(name); }
+      },
+      setAttribute() {},
+      prepend(...nodes) { this.children.unshift(...nodes); },
+      append(...nodes) { this.children.push(...nodes); },
+      addEventListener(type, handler) { (this.listeners[type] = this.listeners[type] || []).push(handler); },
+      querySelector() { return null; },
+      scrollIntoView(options) { scrolled.push(options); },
+      remove() {}
+    };
+    Object.defineProperty(element, "innerHTML", {
+      get() { return element._html; },
+      set(value) {
+        element._html = value;
+        if (value === "") element.children.length = 0;
+      }
+    });
+    return element;
+  };
+
+  const store = new Map();
+  globalThis.document = { createElement: makeElement, createTextNode: (t) => ({ tag: "#text", textContent: t }) };
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, value)
+    },
+    location: { hash: "" }
+  };
+
+  const { createPanel } = await import("../app3d/panel.mjs");
+
+  const host = makeElement("aside");
+  const dossier = createPanel(host, { onPartSelect: () => {} });
+  const wenhui = BRIDGES.find((bridge) => bridge.id === "wenhui");
+  dossier.show(wenhui, {
+    modeled: ["deck", "arch"],
+    profiles: PROFILES,
+    goals: GOALS,
+    sources: SOURCES,
+    sourceLibrary: SOURCE_LIBRARY,
+    quiz: QUIZ,
+    bridges: BRIDGES
+  });
+
+  scrolled.length = 0;
+  dossier.focusPart("arch", { scroll: false });
+  check("自动同步不滚动词条", scrolled.length, 0);
+
+  scrolled.length = 0;
+  dossier.focusPart("deck");
+  check("用户主动点击仍会定位", scrolled.length > 0 ? 1 : 0, 1);
+
+  dossier.hide();
+  delete globalThis.document;
+  delete globalThis.window;
+}
+
 /* ---------------- 面板回调接线完整性 ---------------- */
 
 /**
