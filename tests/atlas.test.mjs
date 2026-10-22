@@ -1960,7 +1960,7 @@ for (const bridge of GEO.bridges) {
   // 局域网版：地址窗口就是主界面（Application.Run），并且不打开桌面窗口
   checkTrue(
     "局域网版用地址窗口作为主界面",
-    /Application\.Run\(BuildAccessForm\(lanUrls, firewallOk\)\)/.test(launcher)
+    /Application\.Run\(BuildAccessForm\(lanUrls, firewallOk, IsAdmin\(\)\)\)/.test(launcher)
   );
   checkTrue(
     "局域网版分支里没有打开桌面浏览器窗口",
@@ -1986,6 +1986,23 @@ for (const bridge of GEO.bridges) {
   );
   checkTrue("地址窗口提供“放行防火墙”按钮", /放行防火墙/.test(launcher));
   checkTrue("有单实例互斥（避免两个服务抢端口）", /AcquireSingleInstance/.test(launcher) && /new Mutex/.test(launcher));
+  /*
+   * Edge 配置目录必须每次独立。
+   *
+   * 踩过的坑：固定用 %TEMP%\qiaojian-liuzhou-app，只要上一次的 Edge 还活着
+   * （服务停了、窗口还挂着），下一次启动就撞上同一个 profile 锁，
+   * Edge 弹出"现有实例正在以提升的权限运行，是否以普通权限重启现有实例"。
+   */
+  checkTrue(
+    "Edge 配置目录带进程号（每次独立）",
+    /"qiaojian-liuzhou-app-" \+ Process\.GetCurrentProcess\(\)\.Id/.test(launcher)
+  );
+  checkTrue("退出时清理临时配置目录", /TryDeleteProfile\(profile\)/.test(launcher) && /Directory\.Delete\(profile, true\)/.test(launcher));
+  checkTrue(
+    "浏览器被拦时退回默认浏览器而不是直接退出",
+    /Process\.Start\(new ProcessStartInfo\(localUrl\) \{ UseShellExecute = true \}\)/.test(launcher)
+  );
+  checkTrue("以管理员身份运行时会提示权限冲突风险", /runningAsAdmin/.test(launcher) && /权限冲突/.test(launcher));
   checkTrue("用标记文件记录已放行的 exe 路径", /firewall-allowed\.txt/.test(launcher));
   checkTrue("规则名按版本区分", /Bridge Observatory \(lan\)/.test(launcher) && /Bridge Observatory \(local\)/.test(launcher));
   checkTrue("规则判断用退出码而不是本地化文案", /result\.Ok = process\.ExitCode == 0;/.test(launcher));

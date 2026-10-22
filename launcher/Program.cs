@@ -190,7 +190,7 @@ namespace QiaojianLauncher
                 return 0;
             }
 
-            Application.Run(BuildAccessForm(lanUrls, firewallOk));
+            Application.Run(BuildAccessForm(lanUrls, firewallOk, IsAdmin()));
             listener.Stop();
             return 0;
 #else
@@ -211,7 +211,15 @@ namespace QiaojianLauncher
                 return 3;
             }
 
-            var profile = Path.Combine(Path.GetTempPath(), "qiaojian-liuzhou-app");
+            /*
+             * 每次启动用独立的临时配置目录（带进程号）。
+             *
+             * 原来固定用 %TEMP%\qiaojian-liuzhou-app：只要上一次的 Edge 还活着
+             * （比如服务已经停了、窗口还开着），下一次启动就会撞上同一个 profile 锁，
+             * Edge 便弹出"现有实例正在以提升的权限运行，是否以普通权限重启现有实例"。
+             * 独立目录从根上避免这种互相锁。
+             */
+            var profile = Path.Combine(Path.GetTempPath(), "qiaojian-liuzhou-app-" + Process.GetCurrentProcess().Id);
             var arguments = "\"--app=" + localUrl + "\" --window-size=1440,900 --window-position=40,40 --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check";
 
             var process = Process.Start(new ProcessStartInfo
@@ -229,7 +237,27 @@ namespace QiaojianLauncher
                 return 4;
             }
 
-            process.WaitForExit();
+            // 浏览器若在 3 秒内就退出，多半是被拦或配置锁冲突：退回系统默认浏览器，
+            // 至少让画面能打开（此时服务继续跑，用户关掉控制台/再双击才会停）。
+            var exitedFast = process.WaitForExit(3000);
+            if (exitedFast)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(localUrl) { UseShellExecute = true });
+                }
+                catch
+                {
+                    // 打不开就保持服务运行，用户可手动访问
+                }
+                WaitForAnyInput();
+            }
+            else
+            {
+                process.WaitForExit();
+            }
+
+            TryDeleteProfile(profile);
             listener.Stop();
             return 0;
 #endif
@@ -416,9 +444,55 @@ namespace QiaojianLauncher
             }
         }
 
+        private static void TryDeleteProfile(string profile)
+        {
+            try
+            {
+                if (Directory.Exists(profile)) Directory.Delete(profile, true);
+            }
+            catch
+            {
+                // Edge 可能还有后台进程占着，删不掉就算了（下次启动用的是新目录）
+            }
+        }
+
+        /// <summary>浏览器被拦时，让服务继续跑一会儿，而不是立刻退出。</summary>
+        private static void WaitForAnyInput()
+        {
+            try
+            {
+                var form = new Form
+                {
+                    Text = "桥见柳州 · 服务运行中",
+                    ClientSize = new Size(460, 150),
+                    StartPosition = FormStartPosition.CenterScreen,
+                    TopMost = true,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+                var label = new Label
+                {
+                    Text = "浏览器窗口没能打开（可能被系统拦截或与已有实例冲突）。\n服务仍在运行，可手动访问地址栏里的链接；\n关闭这个窗口即停止服务。",
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(16),
+                    TextAlign = ContentAlignment.MiddleLeft
+                };
+                var stop = new Button { Text = "停止服务", Dock = DockStyle.Bottom, Height = 40 };
+                stop.Click += (sender, eventArgs) => form.Close();
+                form.Controls.Add(label);
+                form.Controls.Add(stop);
+                Application.Run(form);
+            }
+            catch
+            {
+                // 无桌面环境时直接返回
+            }
+        }
+
         /* ---------------- 手机地址窗口 ---------------- */
 
-        private static Form BuildAccessForm(List<string> lanUrls, bool firewallOk)
+        private static Form BuildAccessForm(List<string> lanUrls, bool firewallOk, bool runningAsAdmin)
         {
             var form = new Form
             {
@@ -458,7 +532,9 @@ namespace QiaojianLauncher
             var hint = new Label
             {
                 Text = firewallOk
-                    ? "防火墙已放行。关闭这个窗口即停止服务。"
+                    ? (runningAsAdmin
+                        ? "防火墙已放行。注意：当前以管理员身份运行，浏览器可能提示权限冲突；建议普通双击。"
+                        : "防火墙已放行。关闭这个窗口即停止服务。")
                     : "防火墙尚未放行：手机可能连不上。点右侧按钮按需授权（只需一次）。",
                 Dock = DockStyle.Bottom,
                 Height = 46,
