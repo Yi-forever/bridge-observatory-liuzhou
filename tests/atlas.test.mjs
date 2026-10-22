@@ -1465,6 +1465,105 @@ for (const bridge of GEO.bridges) {
   );
 }
 
+/* ---------------- 局部更新不得触发实验词条重建 ---------------- */
+
+/**
+ * 真正的病根（v4.8 之前都没抓到）：
+ *   载荷滑杆每 tick 调 lab.show({ load, loadText })——**不带 bridge / flow**。
+ *   而 show() 里写的是
+ *     flowChanged = JSON.stringify(state.flow) !== JSON.stringify(next.flow || [])
+ *   next.flow 是 undefined → 比较对象变成 [] → 判定"力流变了" → 整块重建 →
+ *   滚动位置归零 → 词条跳回最上面的"力流"。
+ *
+ * 这里直接数「innerHTML 被清空」的次数：拖 5 次滑杆，重建次数必须还是 1。
+ */
+{
+  let resets = 0;
+  const makeElement = (tag) => {
+    const element = {
+      tag,
+      className: "",
+      textContent: "",
+      _html: "",
+      hidden: false,
+      disabled: false,
+      type: "",
+      title: "",
+      value: "",
+      min: "",
+      max: "",
+      step: "",
+      scope: "",
+      href: "",
+      scrollTop: 0,
+      dataset: {},
+      children: [],
+      listeners: {},
+      classList: {
+        set: new Set(),
+        add(name) { this.set.add(name); },
+        remove(name) { this.set.delete(name); },
+        toggle(name, force) {
+          const on = force === undefined ? !this.set.has(name) : force;
+          if (on) this.set.add(name); else this.set.delete(name);
+          return on;
+        },
+        contains(name) { return this.set.has(name); }
+      },
+      setAttribute() {},
+      prepend(...nodes) { this.children.unshift(...nodes); },
+      append(...nodes) { this.children.push(...nodes); },
+      addEventListener(type, handler) { (this.listeners[type] = this.listeners[type] || []).push(handler); },
+      querySelector() { return null; },
+      scrollIntoView() {},
+      remove() {}
+    };
+    Object.defineProperty(element, "innerHTML", {
+      get() { return element._html; },
+      set(value) {
+        if (value === "") resets += 1;
+        element._html = value;
+        if (value === "") element.children.length = 0;
+      }
+    });
+    return element;
+  };
+
+  globalThis.document = { createElement: makeElement, createTextNode: (t) => ({ tag: "#text", textContent: t }) };
+  globalThis.window = { matchMedia: () => ({ matches: false }), location: { hash: "" } };
+
+  const { createLab } = await import("../app3d/lab.mjs");
+  const { FORCE_FLOW } = await import("../app3d/scene.mjs");
+
+  const host = makeElement("aside");
+  const lab = createLab(host, { bridges: BRIDGES, profiles: PROFILES, goals: GOALS });
+  const bridge = BRIDGES.find((item) => item.id === "wenhui");
+  const flow = [...FORCE_FLOW.wenhui];
+
+  lab.show({ bridge, flow, step: 1, load: 0.1, collapsed: false, exp: true, showLoad: true });
+  const afterFirst = resets;
+  checkTrue("实验词条首帧会构建", afterFirst >= 1, `resets=${afterFirst}`);
+
+  // 真实调用形状：只有 load / loadText
+  for (const load of [0.2, 0.3, 0.4, 0.5, 0.6]) {
+    lab.show({ load, loadText: `跨中下沉约 ${(load * 4).toFixed(1)} cm` });
+  }
+  check("拖滑杆不重建词条（重建会丢滚动位置）", resets, afterFirst);
+
+  // 换个步也不能重建：步骤只是 render()，不换 DOM
+  lab.show({ step: 2 });
+  check("换力流步骤不重建词条", resets, afterFirst);
+
+  // 换桥确实要重建
+  const other = BRIDGES.find((item) => item.id === "baisha");
+  lab.show({ bridge: other, flow: [...FORCE_FLOW.baisha] });
+  check("换桥会重建词条", resets, afterFirst + 1);
+
+  lab.hide();
+  delete globalThis.document;
+  delete globalThis.window;
+}
+
 /* ---------------- 自动同步不得抢走用户滚动位置 ---------------- */
 
 /**

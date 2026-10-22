@@ -345,11 +345,28 @@ export function createLab(host, options = {}) {
 
   return {
     show(next) {
-      const bridgeChanged = !state.bridge || !next.bridge || state.bridge.id !== next.bridge.id;
-      const flowChanged = JSON.stringify(state.flow) !== JSON.stringify(next.flow || []);
-      const collapsedChanged = Boolean(next.collapsed) !== Boolean(state.collapsed);
+      /*
+       * 局部更新（只传 load / loadText）不能被当成"结构变了"。
+       *
+       * 之前这么写：
+       *   flowChanged = JSON.stringify(state.flow) !== JSON.stringify(next.flow || [])
+       * 载荷滑杆每 tick 调 show({ load }) 时 next.flow 是 undefined → 比较 "[]" →
+       * 判定"力流变了"→ 整块重建 → 滚动位置归零 → 词条跳回最上面的"力流"。
+       * 现在只在该字段**真的传了**的时候才比较。
+       */
+      const nextBridge = next.bridge;
+      const bridgeChanged = Boolean(nextBridge) && (!state.bridge || state.bridge.id !== nextBridge.id);
+      const flowChanged = Array.isArray(next.flow) && JSON.stringify(state.flow) !== JSON.stringify(next.flow);
+      const collapsedChanged =
+        next.collapsed === undefined ? false : Boolean(next.collapsed) !== Boolean(state.collapsed);
+
+      // 万一确实要重建（换桥 / 收起展开），也别把用户甩回顶部
+      const previousScroll = els && els.wrap && typeof els.wrap.scrollTop === "number" ? els.wrap.scrollTop : 0;
       state = { ...state, ...next };
       if (bridgeChanged || flowChanged || collapsedChanged || !els) build();
+      if (els && els.wrap && typeof els.wrap.scrollTop === "number") {
+        els.wrap.scrollTop = bridgeChanged ? 0 : previousScroll;
+      }
       if (state.collapsed) {
         if (els && els.collapsedBar) els.collapsedBar.readout.textContent = state.readout || "未开始";
         return;
