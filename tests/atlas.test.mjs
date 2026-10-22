@@ -1931,45 +1931,46 @@ for (const bridge of GEO.bridges) {
 /* ---------------- 启动脚本的可执行性 ---------------- */
 
 /**
- * 踩过的坑：把 .bat 存成 UTF-8 并在里面写中文，cmd.exe 会按 OEM 代码页（GBK）读，
- * 于是 if exist "桥见柳州.exe" 这条判断被读成乱码、静默跳过，脚本看起来"双击没反应"。
- * 所以：启动脚本一律纯 ASCII，中文文件名靠通配符 * .exe 解析。
+ * 两件曾经真出过问题的事：
+ *   1. 把 .bat 存成 UTF-8 并写中文 → cmd 按 OEM 代码页读成乱码，
+ *      "if exist 桥见柳州.exe" 静默跳过，双击"没反应"。
+ *   2. 把"对局域网开放"拆成两个脚本（开关 + 启动）→ 用户只跑其中一个，
+ *      手机就连不上。现在合并进一个程序：桥见柳州.exe 自己搞定
+ *      静态服务、LAN 绑定、防火墙规则和地址窗口。
  *
- * 这里锁三件事：脚本存在、是纯 ASCII、且用通配符找启动器而不是拼中文字面量。
+ * 所以：启动脚本只留 start.bat（启动器的兜底），且必须纯 ASCII。
  */
 {
   const readFile = async (name) =>
     (await import("node:fs/promises")).readFile(new URL(`../${name}`, import.meta.url), "utf8");
 
-  const scripts = ["start-mobile.bat", "start-lan.bat", "start.bat"];
-  for (const name of scripts) {
-    const source = await readFile(name).catch(() => null);
-    checkTrue(`${name} 存在`, Boolean(source));
-    if (!source) continue;
-    const nonAscii = [...source].filter((char) => char.charCodeAt(0) > 127);
+  const bats = fs.readdirSync(new URL("..", import.meta.url)).filter((name) => name.toLowerCase().endsWith(".bat"));
+  checkTrue("只剩一个启动脚本（LAN 能力已并进启动器）", bats.length === 1, bats.join(","));
+  checkTrue("启动脚本是 start.bat", bats[0] === "start.bat");
+
+  const startBat = await readFile("start.bat").catch(() => null);
+  checkTrue("start.bat 存在", Boolean(startBat));
+  if (startBat) {
+    const nonAscii = [...startBat].filter((char) => char.charCodeAt(0) > 127);
     checkTrue(
-      `${name} 是纯 ASCII（否则 cmd 会读成乱码）`,
+      "start.bat 是纯 ASCII（否则 cmd 会读成乱码）",
       nonAscii.length === 0,
-      `发现 ${nonAscii.length} 个非 ASCII 字符：${nonAscii.slice(0, 8).join("")}`
+      `发现 ${nonAscii.length} 个非 ASCII 字符`
     );
+    checkTrue(
+      "start.bat 用通配符找启动器（不拼中文文件名）",
+      /for %%f in \("%~dp0\*\.exe"\)/.test(startBat)
+    );
+    checkTrue("start.bat 的 Node 兜底也开 LAN", /node server\.js --lan/.test(startBat));
   }
 
-  const mobile = await readFile("start-mobile.bat");
-  checkTrue("start-mobile.bat 会带 --lan 启动", /--lan/.test(mobile));
-  checkTrue(
-    "start-mobile.bat 用通配符找启动器（不拼中文文件名）",
-    /for %%f in \("%~dp0\*\.exe"\)/.test(mobile),
-    mobile.split("\n").find((line) => line.includes("for %%f")) || ""
-  );
-
-  const firewall = await readFile("允许手机访问.bat");
-  checkTrue(
-    "允许手机访问.bat 对任意网络配置文件放行",
-    /profile=any/.test(firewall) && /dir=in action=allow/.test(firewall)
-  );
-
-  const doctor = await readFile("tools/lan-doctor.mjs");
-  checkTrue("提供局域网自查工具", /== 2\. 防火墙/.test(doctor) || doctor.includes("防火墙"));
+  // 启动器是唯一入口：源码里必须自己处理防火墙与 LAN
+  const launcher = await readFile("launcher/Program.cs").catch(() => "");
+  checkTrue("启动器默认绑定 0.0.0.0", /localOnly \? IPAddress\.Loopback : IPAddress\.Any/.test(launcher));
+  checkTrue("启动器自己确保防火墙放行", /EnsureFirewall/.test(launcher) && /advfirewall firewall add rule/.test(launcher));
+  checkTrue("启动器会提权（runas）以加规则", /Verb = "runas"/.test(launcher));
+  checkTrue("启动器提供手机地址窗口", /ShowAccessWindow/.test(launcher) && /Clipboard\.SetText/.test(launcher));
+  checkTrue("启动器有 --local 回退（只绑回环）", /--local/.test(launcher));
 }
 
 /* ---------------- 移动端启动：局域网地址筛选 ---------------- */
@@ -2012,7 +2013,7 @@ for (const bridge of GEO.bridges) {
   const server = await (await import("node:fs/promises")).readFile(new URL("../server.js", import.meta.url), "utf8");
   checkTrue("server.js 默认绑定回环", /wantLan \? "0\.0\.0\.0" : "127\.0\.0\.1"/.test(server));
   checkTrue("server.js 支持 --lan", /--lan/.test(server) && /listLanAddresses\(\)/.test(server));
-  checkTrue("提供了 start-lan.bat", fs.existsSync(new URL("../start-lan.bat", import.meta.url)));
+  checkTrue("启动器源码在本仓库内", fs.existsSync(new URL("../launcher/Program.cs", import.meta.url)));
 }
 
 /* ---------------- 合并几何体必须有法线 ---------------- */
