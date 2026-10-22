@@ -1114,3 +1114,57 @@ body.app3d-active {
     max-height: 62vh;
   }
 }
+
+/* 受力配色图例：颜色与 atlas 的 highlightMaterials 一一对应 */
+.a3d-lab-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: rgba(206, 226, 229, 0.72);
+}
+
+.a3d-lab-legend[hidden] {
+  display: none;
+}
+
+.a3d-lab-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.a3d-lab-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #9fd8e0;
+}
+
+.a3d-lab-legend li[data-nature="load"] i {
+  background: #ffd479;
+}
+
+.a3d-lab-legend li[data-nature="bending"] i {
+  background: #c8a4ff;
+}
+
+.a3d-lab-legend li[data-nature="tension"] i {
+  background: #ff7a63;
+}
+
+.a3d-lab-legend li[data-nature="compression"] i {
+  background: #74b6ff;
+}
+
+.a3d-lab-legend li[data-nature="transfer"] i {
+  background: #9fe0c8;
+}
+
+/* 荷载小节隐藏时不要留空隙 */
+.a3d-lab-section[hidden] {
+  display: none;
+}

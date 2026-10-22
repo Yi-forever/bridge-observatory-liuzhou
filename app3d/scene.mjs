@@ -15,6 +15,8 @@
 
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "./atlas.mjs";
+import { BRIDGE_BY_ID } from "./data.mjs";
+import { forceEntries } from "./force-map.mjs";
 import { createLabels } from "./labels.mjs";
 import { getTheme } from "./theme.mjs";
 
@@ -242,6 +244,182 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     if (force.elapsed < FORCE_STEP_SECONDS) return;
     force.elapsed = 0;
     stepForce();
+  }
+
+  /* ---------------- 实验室叠加层（荷载 / 挠度 / 受力配色） ---------------- */
+
+  /**
+   * 挠度是"画"出来的，不是真的变形：
+   * 桥梁构件是按材质合并后的静态网格，弯不了。所以这里画一条下沉的包络线
+   * + 一个数字读数，并在 UI 里明确标注"图形夸张"。
+   */
+  const DEFLECTION_EXAGGERATION = 50; // 真实 cm → 画面尺寸的放大倍数
+  const deflectionMaterial = new THREE.LineBasicMaterial({ color: 0xffcf6a, transparent: true, opacity: 0.95 });
+  const baselineMaterial = new THREE.LineDashedMaterial({ color: 0x9fd8e0, dashSize: 0.06, gapSize: 0.05, transparent: true, opacity: 0.5 });
+
+  const labOverlay = { bridgeId: null, parent: null, marker: null, line: null, baseline: null, load: 0 };
+
+  /** 取某座桥在自身坐标系里的尺寸（拆解动画会改 position，要算进去）。 */
+  function bridgeMetrics(bridgeId) {
+    const entry = atlas.bridges.get(bridgeId);
+    if (!entry) return null;
+    const model = entry.group.children.find(
+      (child) => child.isGroup && child.userData && typeof child.userData.deckTop === "number"
+    );
+    if (!model) return null;
+
+    let halfLength = 0;
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      const geometry = object.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      if (!box) return;
+      halfLength = Math.max(
+        halfLength,
+        Math.abs(box.max.x + object.position.x),
+        Math.abs(box.min.x + object.position.x)
+      );
+    });
+    return { model, halfLength, deckTop: model.userData.deckTop };
+  }
+
+  function disposeOverlay() {
+    if (labOverlay.marker) labOverlay.marker.removeFromParent?.();
+    for (const line of [labOverlay.line, labOverlay.baseline]) {
+      if (!line) continue;
+      line.removeFromParent?.();
+      line.geometry?.dispose();
+    }
+    labOverlay.bridgeId = null;
+    labOverlay.parent = null;
+    labOverlay.marker = null;
+    labOverlay.line = null;
+    labOverlay.baseline = null;
+    labOverlay.load = 0;
+  }
+
+  function ensureOverlay(bridgeId) {
+    const metrics = bridgeMetrics(bridgeId);
+    if (!metrics) return null;
+    if (labOverlay.bridgeId === bridgeId && labOverlay.parent) {
+      return { metrics, ...labOverlay };
+    }
+    disposeOverlay();
+
+    const markerMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffcf6a,
+      emissive: new THREE.Color(0xffb020),
+      emissiveIntensity: 0.9,
+      roughness: 0.4,
+      metalness: 0.1
+    });
+    const size = Math.max(0.02, metrics.halfLength * 0.045);
+
+    const marker = new THREE.Group();
+    const head = new THREE.Mesh(new THREE.ConeGeometry(size * 0.55, size * 1.1, 10), markerMaterial);
+    head.rotation.x = Math.PI; // 尖端朝下，表示荷载压下来
+    head.position.y = size * 1.3;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.16, size * 0.16, size * 2.2, 8), markerMaterial);
+    shaft.position.y = size * 3.0;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(size * 1.9, size * 0.8, size * 1.15), markerMaterial);
+    body.position.y = size * 4.6;
+    marker.add(head, shaft, body);
+    marker.traverse((object) => {
+      if (!object.isMesh) return;
+      object.userData.noPick = true;
+      object.castShadow = false;
+      object.receiveShadow = false;
+    });
+    marker.position.set(0, metrics.deckTop + 0.01, 0);
+    metrics.model.add(marker);
+
+    const line = new THREE.Line(new THREE.BufferGeometry(), deflectionMaterial);
+    line.userData.noPick = true;
+    line.frustumCulled = false;
+    const baseline = new THREE.Line(new THREE.BufferGeometry(), baselineMaterial);
+    baseline.userData.noPick = true;
+    baseline.frustumCulled = false;
+    metrics.model.add(line, baseline);
+
+    labOverlay.bridgeId = bridgeId;
+    labOverlay.parent = metrics.model;
+    labOverlay.marker = marker;
+    labOverlay.line = line;
+    labOverlay.baseline = baseline;
+    return { metrics, ...labOverlay };
+  }
+
+  /** 重画挠度曲线（sag 是画面上的下沉量，单位：世界单位）。 */
+  function paintDeflection(state, sag) {
+    const { metrics, line, baseline } = state;
+    const steps = 48;
+    const deckY = metrics.deckTop + 0.012;
+    const curve = new Float32Array((steps + 1) * 3);
+    const flat = new Float32Array((steps + 1) * 3);
+
+    for (let i = 0; i <= steps; i += 1) {
+      const u = i / steps;
+      const x = -metrics.halfLength + u * metrics.halfLength * 2;
+      // 简支梁跨中集中荷载的挠曲线形状：正弦半波就够说明问题
+      const dip = sag * Math.sin(Math.PI * u);
+      curve[i * 3] = x;
+      curve[i * 3 + 1] = deckY - dip;
+      curve[i * 3 + 2] = 0;
+      flat[i * 3] = x;
+      flat[i * 3 + 1] = deckY;
+      flat[i * 3 + 2] = 0;
+    }
+
+    line.geometry.setAttribute("position", new THREE.BufferAttribute(curve, 3));
+    line.geometry.computeBoundingSphere();
+    baseline.geometry.setAttribute("position", new THREE.BufferAttribute(flat, 3));
+    baseline.geometry.computeBoundingSphere();
+    baseline.computeLineDistances();
+  }
+
+  /**
+   * 设置实验室的荷载（0..1）。
+   * 返回读数：{ load, realCm, sag, halfLength }，UI 拿它显示数字。
+   */
+  function setLabLoad(bridgeId, load) {
+    const clamped = Math.max(0, Math.min(1, Number(load) || 0));
+    const state = ensureOverlay(bridgeId);
+    if (!state) return null;
+
+    const bridge = BRIDGE_BY_ID.get(bridgeId);
+    const deflectionBase = bridge ? Number(bridge.deflectionBase) || 4 : 4;
+
+    // 真实下沉（cm）：教学简化——满荷载时 deflectionBase 的一半，量级是"几厘米"
+    const realCm = (deflectionBase * 0.5) * clamped;
+    // 画面下沉：把 cm 换成 m 再放大，保证 1:100 的模型里看得见
+    const sag = (realCm / 100) * DEFLECTION_EXAGGERATION * 0.1;
+
+    state.marker.visible = clamped > 0.001;
+    state.marker.scale.setScalar(0.6 + clamped * 0.4);
+    paintDeflection(state, clamped > 0.001 ? sag : 0);
+    state.line.visible = clamped > 0.001;
+    labOverlay.load = clamped;
+
+    return { load: clamped, realCm, sag, halfLength: state.metrics.halfLength };
+  }
+
+  /** 实验室的压/拉配色：一次把整座桥的构件按受力性质上色。 */
+  function colorizeForce(bridgeId, on) {
+    if (!on) {
+      atlas.clearPartHighlight();
+      return false;
+    }
+    const entry = atlas.bridges.get(bridgeId);
+    const bridge = BRIDGE_BY_ID.get(bridgeId);
+    if (!entry || !bridge) return false;
+    const entries = forceEntries(bridge.model, [...entry.parts.keys()]);
+    if (entries.length === 0) return false;
+    atlas.highlightParts(
+      bridgeId,
+      entries.map((item) => ({ partId: item.partId, style: item.nature }))
+    );
+    return true;
   }
 
   const raycaster = new THREE.Raycaster();
@@ -573,6 +751,9 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
       return;
     }
 
+    // 不在实验室视图：清掉荷载/挠度叠加层
+    if (state.view !== "lab") disposeOverlay();
+
     // 受力演示：只在单桥视图、且 mode === "force" 时跑
     const wantForce = state.mode === "force" && state.view === "bridge" ? state.bridgeId : null;
     if (wantForce) {
@@ -687,6 +868,12 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     resetView,
     /** 手动定位力流步骤（实验室用）；返回命中的构件 id。 */
     setForceStep,
+    /** 实验室：设置荷载（0..1），返回读数。 */
+    setLabLoad,
+    /** 实验室：压/拉配色开关。 */
+    colorizeForce,
+    /** 实验室：清掉荷载/挠度叠加层。 */
+    clearLabOverlay: disposeOverlay,
     /** 某座桥的力流顺序（构件 id 数组），实验室用它排步骤。 */
     forceFlow: (bridgeId) => (FORCE_FLOW[bridgeId] ? [...FORCE_FLOW[bridgeId]] : []),
     /** 把镜头对准某座桥（实验室/档案深链用）。 */

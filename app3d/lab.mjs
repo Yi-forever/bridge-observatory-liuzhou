@@ -36,11 +36,23 @@ export function createLab(host, options = {}) {
     onTogglePlay,
     onToggleExplode,
     onSetLoad,
+    onToggleColors,
     onOpenBridge,
-    onOpen2d
+    onOpen2d,
+    legend = {}
   } = options;
 
-  let state = { bridge: null, step: null, exploded: false, playing: false, flow: [], load: 0 };
+  let state = {
+    bridge: null,
+    step: null,
+    exploded: false,
+    playing: false,
+    flow: [],
+    load: 0,
+    loadText: "",
+    forceColors: false,
+    showLoad: false
+  };
   let els = null;
 
   host.classList.add("a3d-lab");
@@ -181,6 +193,28 @@ export function createLab(host, options = {}) {
     explodeButton.textContent = "结构拆解";
     explodeButton.addEventListener("click", () => onToggleExplode && onToggleExplode());
 
+    const colorsButton = document.createElement("button");
+    colorsButton.type = "button";
+    colorsButton.className = "a3d-lab-tool";
+    colorsButton.textContent = "受力配色";
+    colorsButton.addEventListener("click", () => onToggleColors && onToggleColors());
+
+    /* 图例：受拉 / 受压 / 受弯 / 承接荷载 / 传力过渡 */
+    const legendList = document.createElement("ul");
+    legendList.className = "a3d-lab-legend";
+    legendList.setAttribute("aria-label", "受力配色图例");
+    for (const [key, item] of Object.entries(legend)) {
+      const entry = document.createElement("li");
+      entry.dataset.nature = key;
+      const dot = document.createElement("i");
+      dot.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.textContent = item.label || key;
+      text.title = item.hint || "";
+      entry.append(dot, text);
+      legendList.append(entry);
+    }
+
     const openBridgeButton = document.createElement("button");
     openBridgeButton.type = "button";
     openBridgeButton.className = "a3d-lab-tool";
@@ -189,7 +223,7 @@ export function createLab(host, options = {}) {
       if (state.bridge && onOpenBridge) onOpenBridge(state.bridge.id);
     });
 
-    tools.append(explodeButton, openBridgeButton);
+    tools.append(explodeButton, colorsButton, openBridgeButton);
 
     /* 底部 */
     const footer = document.createElement("footer");
@@ -201,9 +235,22 @@ export function createLab(host, options = {}) {
     cta.addEventListener("click", () => onOpen2d && onOpen2d(state.bridge && state.bridge.id));
     footer.append(cta);
 
-    host.append(header, chips, flowSection, loadSection, tools, footer);
+    loadSection.hidden = !state.showLoad;
+    host.append(header, chips, flowSection, loadSection, tools, legendList, footer);
 
-    els = { chipButtons, stepButtons, playButton, explodeButton, forceNote, loadInput, loadValue, loadNote, loadSection };
+    els = {
+      chipButtons,
+      stepButtons,
+      playButton,
+      explodeButton,
+      colorsButton,
+      legendList,
+      forceNote,
+      loadInput,
+      loadValue,
+      loadNote,
+      loadSection
+    };
   }
 
   function render() {
@@ -229,9 +276,14 @@ export function createLab(host, options = {}) {
       ? `${profile.force}。构件：${profile.members}。`
       : "";
 
+    els.colorsButton.classList.toggle("is-active", Boolean(state.forceColors));
+    els.colorsButton.setAttribute("aria-pressed", state.forceColors ? "true" : "false");
+    els.legendList.hidden = !state.forceColors;
+
+    els.loadSection.hidden = !state.showLoad;
     els.loadInput.value = String(Math.round((state.load || 0) * 100));
     els.loadValue.textContent = `${Math.round((state.load || 0) * 100)}%`;
-    els.loadNote.textContent = options.loadNote ? options.loadNote(state.load || 0) : "";
+    els.loadNote.textContent = state.loadText || "";
   }
 
   return {

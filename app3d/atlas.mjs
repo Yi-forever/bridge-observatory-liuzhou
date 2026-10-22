@@ -1827,6 +1827,62 @@ export function buildAtlas(options = {}) {
       opacity: 0.6,
       depthWrite: false,
       side: THREE.DoubleSide
+    }),
+    // 实验室的受力配色：受拉偏暖红、受压偏冷蓝
+    tension: new THREE.MeshStandardMaterial({
+      color: 0xff7a63,
+      emissive: new THREE.Color(0xff3d24),
+      emissiveIntensity: 0.85,
+      roughness: 0.5,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }),
+    compression: new THREE.MeshStandardMaterial({
+      color: 0x74b6ff,
+      emissive: new THREE.Color(0x2f7fff),
+      emissiveIntensity: 0.8,
+      roughness: 0.5,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }),
+    bending: new THREE.MeshStandardMaterial({
+      color: 0xc8a4ff,
+      emissive: new THREE.Color(0x8b5cf6),
+      emissiveIntensity: 0.75,
+      roughness: 0.5,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }),
+    load: new THREE.MeshStandardMaterial({
+      color: 0xffd479,
+      emissive: new THREE.Color(0xffb020),
+      emissiveIntensity: 0.8,
+      roughness: 0.5,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }),
+    transfer: new THREE.MeshStandardMaterial({
+      color: 0x9fe0c8,
+      emissive: new THREE.Color(0x2fbf94),
+      emissiveIntensity: 0.6,
+      roughness: 0.55,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      side: THREE.DoubleSide
     })
   };
   let highlighted = { bridgeId: null, partId: null, meshes: [] };
@@ -1868,25 +1924,42 @@ export function buildAtlas(options = {}) {
    * 高亮某个构件。
    * @returns {{id: string, label: string}|null} 命中的构件（找不到则为 null）
    */
-  function highlightPart(bridgeId, partId, style = "select") {
+  /**
+   * 同时高亮多个构件，每个可以有自己的配色。
+   * entries = [{ partId, style }]（实验室的受力配色就靠它一次画满整座桥）
+   * @returns {{id:string,label:string}|null} 第一个命中的构件
+   */
+  function highlightParts(bridgeId, entries) {
     clearPartHighlight();
-    if (!bridgeId || !partId) return null;
+    if (!bridgeId || !Array.isArray(entries) || entries.length === 0) return null;
     const entry = bridges.get(bridgeId);
-    const part = entry && entry.parts ? entry.parts.get(partId) : null;
-    if (!part) return null;
-    const material = highlightMaterials[style] || highlightMaterials.select;
+    if (!entry || !entry.parts) return null;
+
     const ghosts = [];
-    for (const source of part.meshes) {
-      const ghost = new THREE.Mesh(source.geometry, material);
-      ghost.userData.noPick = true;
-      ghost.castShadow = false;
-      ghost.receiveShadow = false;
-      ghost.renderOrder = 2;
-      source.parent.add(ghost);
-      ghosts.push(ghost);
+    let first = null;
+    const painted = [];
+    for (const item of entries) {
+      const part = entry.parts.get(item.partId);
+      if (!part) continue;
+      const material = highlightMaterials[item.style] || highlightMaterials.select;
+      for (const source of part.meshes) {
+        const ghost = new THREE.Mesh(source.geometry, material);
+        ghost.userData.noPick = true;
+        ghost.castShadow = false;
+        ghost.receiveShadow = false;
+        ghost.renderOrder = 2;
+        source.parent.add(ghost);
+        ghosts.push(ghost);
+      }
+      painted.push(item.partId);
+      if (!first) first = { id: part.id, label: part.label };
     }
-    highlighted = { bridgeId, partId, meshes: ghosts };
-    return { id: part.id, label: part.label };
+    highlighted = { bridgeId, partId: painted.join(","), meshes: ghosts };
+    return first;
+  }
+
+  function highlightPart(bridgeId, partId, style = "select") {
+    return highlightParts(bridgeId, [{ partId, style }]);
   }
 
   function emphasisFor(id) {
@@ -2005,6 +2078,7 @@ export function buildAtlas(options = {}) {
     updateExplode,
     explodeOffsets: EXPLODE_OFFSET,
     highlightPart,
+    highlightParts,
     clearPartHighlight,
     get hovered() {
       return hoveredKey;

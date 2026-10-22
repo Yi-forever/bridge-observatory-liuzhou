@@ -8,6 +8,7 @@
  */
 
 import { BRIDGES, BRIDGE_BY_ID, PROFILES } from "./data.mjs";
+import { FORCE_LEGEND } from "./force-map.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
 import { createRouter, toHash } from "./state.mjs";
@@ -71,8 +72,11 @@ const LAB_DEFAULT_BRIDGE = "wenhui";
 /** 自动播放力流的定时器。 */
 let labTimer = null;
 
-/** 荷载（0..1）。P1 才接到场景上，P0 先存在状态里。 */
+/** 荷载（0..1）与最近一次读数文案。 */
 let labLoad = 0;
+let labLoadText = "";
+/** 受力配色开关（不写进 hash：属于临时观察方式）。 */
+let labForceColors = false;
 
 function stopLabPlayback() {
   if (labTimer !== null) {
@@ -374,6 +378,7 @@ function applyLab(state) {
   if (!state || state.view !== "lab") {
     lab.hide();
     stopLabPlayback();
+    labForceColors = false;
     return;
   }
 
@@ -392,8 +397,38 @@ function applyLab(state) {
     exploded,
     playing: labTimer !== null,
     load: labLoad,
+    loadText: labLoadText,
+    forceColors: labForceColors,
     showLoad: Boolean(scene && scene.setLabLoad)
   });
+  applyLabVisuals(state);
+}
+
+/**
+ * 把实验室的视觉状态落到场景上：受力配色 / 力流步骤 / 荷载与挠度。
+ * 必须在 scene.setState 之后再调用，否则会被 setState 里的高亮逻辑覆盖。
+ */
+function applyLabVisuals(state) {
+  if (!scene || !state || state.view !== "lab") return;
+  const { bridgeId, step } = labStateOf(state);
+
+  if (labForceColors) {
+    scene.colorizeForce(bridgeId, true);
+  } else {
+    scene.colorizeForce(bridgeId, false);
+    scene.setForceStep(bridgeId, Number.isInteger(step) ? step : -1);
+  }
+
+  const info = scene.setLabLoad ? scene.setLabLoad(bridgeId, labLoad) : null;
+  if (info) {
+    labLoadText =
+      info.load <= 0.001
+        ? "拖到 0 以上看荷载怎么传下去。挠度曲线为教学夸张（\u00d750），不是精确计算。"
+        : `跨中下沉约 ${info.realCm.toFixed(1)} cm（图形夸张 \u00d750）。`;
+  } else {
+    labLoadText = "";
+  }
+  if (lab && lab.isOpen) lab.show({ load: labLoad, loadText: labLoadText });
 }
 
 function renderBrowse() {
@@ -441,8 +476,8 @@ function renderApp3d(state) {
   latestState = state;
   updateStatus(state);
   applyPanel(state);
-  applyLab(state);
   ensureSceneReady(state);
+  applyLab(state);
 }
 
 function onChange(state, meta) {
@@ -523,6 +558,18 @@ function boot() {
         if (!state) return;
         window.location.hash = toHash({ ...state, exploded: !state.exploded });
       },
+      onSetLoad: (value) => {
+        labLoad = Math.max(0, Math.min(1, Number(value) || 0));
+        const state = router ? router.current : null;
+        if (state) applyLabVisuals(state);
+      },
+      onToggleColors: () => {
+        labForceColors = !labForceColors;
+        const state = router ? router.current : null;
+        if (state) applyLabVisuals(state);
+        if (lab) lab.show({ forceColors: labForceColors });
+      },
+      legend: FORCE_LEGEND,
       onOpenBridge: (bridgeId) => {
         window.location.hash = `#bridge/${bridgeId}`;
       },

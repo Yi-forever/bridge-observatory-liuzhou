@@ -1221,6 +1221,72 @@ for (const [id, entry] of atlas.buildings) {
   delete globalThis.document;
 }
 
+/* ---------------- 受力配色表：必须指向真实构件 ---------------- */
+
+/**
+ * FORCE_BY_MODEL 是手写的教学配色表，最容易在"构件改名"后悄悄失效
+ * （表里写了不存在的 partId，配色就少一块而不报错）。这里逐条校验。
+ */
+{
+  const { FORCE_BY_MODEL, FORCE_LEGEND, FORCE_NATURES, forceEntries } = await import(
+    "../app3d/force-map.mjs"
+  );
+
+  checkTrue(
+    "五种桥型都有受力配色",
+    Object.keys(FORCE_BY_MODEL).length === 5,
+    Object.keys(FORCE_BY_MODEL).join(",")
+  );
+
+  for (const bridge of BRIDGES) {
+    const table = FORCE_BY_MODEL[bridge.model];
+    checkTrue(`${bridge.id} 的桥型有配色表`, Boolean(table), bridge.model);
+    if (!table) continue;
+
+    const entry = atlas.bridges.get(bridge.id);
+    const available = entry && entry.parts ? [...entry.parts.keys()] : [];
+    for (const [partId, nature] of Object.entries(table)) {
+      checkTrue(
+        `${bridge.id}/${partId} 在 3D 里存在`,
+        available.includes(partId),
+        `3D 里有：${available.join(",")}`
+      );
+      checkTrue(
+        `${bridge.id}/${partId} 的性质是已知取值`,
+        FORCE_NATURES.includes(nature),
+        nature
+      );
+      checkTrue(`${bridge.id}/${partId} 的性质有图例说明`, Boolean(FORCE_LEGEND[nature] && FORCE_LEGEND[nature].label));
+    }
+
+    const entries = forceEntries(bridge.model, available);
+    checkTrue(`${bridge.id} 能生成受力配色条目`, entries.length >= 3, `entries=${entries.length}`);
+  }
+
+  // 多构件同时高亮：一次给整座桥上色
+  const ghostCount = (bridgeId) => {
+    let ghosts = 0;
+    const entry = atlas.bridges.get(bridgeId);
+    entry.group.traverse((object) => {
+      if (object.isMesh && object.userData && object.userData.noPick) ghosts += 1;
+    });
+    return ghosts;
+  };
+
+  const before = ghostCount("wenhui");
+  atlas.highlightParts("wenhui", [
+    { partId: "deck", style: "load" },
+    { partId: "hanger", style: "tension" },
+    { partId: "arch", style: "compression" },
+    { partId: "abutment", style: "compression" }
+  ]);
+  const after = ghostCount("wenhui");
+  checkTrue("多构件高亮会一次画出整座桥", after - before >= 4, `+${after - before}`);
+
+  atlas.clearPartHighlight();
+  checkTrue("多构件高亮可以清空", ghostCount("wenhui") === before, `${ghostCount("wenhui")} vs ${before}`);
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
