@@ -45,6 +45,8 @@ const LIMITS = {
 /** 聚焦距离：真实桥只有 3–7 个单位长，必须拉近才看得清结构。 */
 const FOCUS = {
   bridge: 9,
+  /** 实验室：比单桥资料卡再近一点，构件才看得清。 */
+  lab: 7.5,
   building: 14
 };
 
@@ -215,6 +217,23 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     if (onPartFocus) {
       onPartFocus(force.bridgeId, hit ? partId : null, hit ? hit.label : null);
     }
+  }
+
+  /**
+   * 手动定位到力流第 index 步（实验室用）。
+   * index 为空/-1 时只清高亮，不启动定时器。
+   */
+  function setForceStep(bridgeId, index) {
+    const order = FORCE_FLOW[bridgeId];
+    if (!bridgeId || !order || !Number.isInteger(index) || index < 0 || index >= order.length) {
+      atlas.clearPartHighlight();
+      if (onPartFocus) onPartFocus(null, null, null);
+      return null;
+    }
+    const partId = order[index];
+    const hit = atlas.highlightPart(bridgeId, partId, "force");
+    if (onPartFocus) onPartFocus(bridgeId, hit ? partId : null, hit ? hit.label : null);
+    return hit ? partId : null;
   }
 
   function updateForce(delta) {
@@ -537,6 +556,23 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   /* ---------------- 状态 ---------------- */
 
   function setState(state) {
+    // 实验室：镜头拉近到实验桥，力流由侧栏手动步进
+    if (state.view === "lab" && state.bridgeId) {
+      stopForce();
+      const entry = atlas.bridges.get(state.bridgeId);
+      if (entry) {
+        focusOn(
+          { x: entry.labelAnchor.x, y: 0.35, z: entry.labelAnchor.z },
+          FOCUS.lab
+        );
+        labels?.setActive(`bridge:${state.bridgeId}`);
+      }
+      setForceStep(state.bridgeId, Number.isInteger(state.step) ? state.step : -1);
+      atlas.setExploded(state.exploded ? state.bridgeId : null);
+      atlas.setSelection({ view: "bridge", bridgeId: state.bridgeId });
+      return;
+    }
+
     // 受力演示：只在单桥视图、且 mode === "force" 时跑
     const wantForce = state.mode === "force" && state.view === "bridge" ? state.bridgeId : null;
     if (wantForce) {
@@ -649,6 +685,25 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     resize,
     dispose,
     resetView,
+    /** 手动定位力流步骤（实验室用）；返回命中的构件 id。 */
+    setForceStep,
+    /** 某座桥的力流顺序（构件 id 数组），实验室用它排步骤。 */
+    forceFlow: (bridgeId) => (FORCE_FLOW[bridgeId] ? [...FORCE_FLOW[bridgeId]] : []),
+    /** 把镜头对准某座桥（实验室/档案深链用）。 */
+    focusBridge: (bridgeId) => {
+      const entry = atlas.bridges.get(bridgeId);
+      if (!entry) return false;
+      focusOn({ x: entry.labelAnchor.x, y: 0.35, z: entry.labelAnchor.z }, FOCUS.lab);
+      labels?.setActive(`bridge:${bridgeId}`);
+      return true;
+    },
+    /** 把镜头对准某栋场馆。 */
+    focusBuilding: (id) => {
+      const entry = atlas.buildings.get(id);
+      if (!entry) return false;
+      focusOn({ x: entry.group.position.x, y: 0.6, z: entry.group.position.z }, FOCUS.building);
+      return true;
+    },
     /** 手动开始/结束受力演示；传 null 结束。 */
     setForceFlow: (bridgeId) => {
       stopForce();

@@ -874,3 +874,243 @@ body.app3d-active {
   outline-offset: -5px;
   border-radius: 2px;
 }
+
+/* ------------------------------------------------------------------ *
+ * 结构实验室侧栏（#lab 视图）
+ * 与 app3d/lab.mjs 成对维护。
+ * ------------------------------------------------------------------ */
+
+.a3d-lab {
+  position: absolute;
+  z-index: 6;
+  top: 96px;
+  right: 28px;
+  width: min(360px, calc(100vw - 56px));
+  max-height: calc(100vh - 180px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(159, 216, 224, 0.22);
+  background: linear-gradient(180deg, rgba(9, 32, 41, 0.94), rgba(7, 24, 31, 0.96));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  color: #e8f2f3;
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  animation: a3d-panel-in 220ms ease-out;
+}
+
+.a3d-lab[hidden] {
+  display: none;
+}
+
+/* 选桥 */
+.a3d-lab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.a3d-lab-chip {
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(159, 216, 224, 0.2);
+  background: rgba(10, 34, 43, 0.5);
+  color: rgba(214, 234, 236, 0.78);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.a3d-lab-chip:hover,
+.a3d-lab-chip:focus-visible {
+  background: rgba(159, 216, 224, 0.14);
+  color: #eaf6f7;
+}
+
+.a3d-lab-chip.is-active {
+  background: rgba(159, 216, 224, 0.26);
+  border-color: rgba(159, 216, 224, 0.6);
+  color: #ffffff;
+}
+
+/* 小节 */
+.a3d-lab-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(159, 216, 224, 0.12);
+}
+
+.a3d-lab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.a3d-lab-head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(180, 214, 219, 0.72);
+}
+
+.a3d-lab-play {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(159, 216, 224, 0.3);
+  background: rgba(159, 216, 224, 0.12);
+  color: #eaf6f7;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.a3d-lab-play:hover,
+.a3d-lab-play:focus-visible {
+  background: rgba(159, 216, 224, 0.24);
+}
+
+.a3d-lab-play[aria-pressed="true"] {
+  background: rgba(255, 207, 106, 0.24);
+  border-color: rgba(255, 207, 106, 0.6);
+  color: #fff6e4;
+}
+
+/* 力流步骤 */
+.a3d-lab-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  counter-reset: step;
+}
+
+.a3d-lab-step {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 216, 224, 0.12);
+  background: rgba(10, 34, 43, 0.45);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.a3d-lab-step:hover,
+.a3d-lab-step:focus-visible {
+  background: rgba(159, 216, 224, 0.1);
+  border-color: rgba(159, 216, 224, 0.4);
+}
+
+.a3d-lab-step.is-active {
+  background: rgba(255, 95, 134, 0.16);
+  border-color: rgba(255, 95, 134, 0.7);
+}
+
+.a3d-lab-index {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  background: rgba(159, 216, 224, 0.18);
+  color: #d9eef0;
+}
+
+.a3d-lab-step.is-active .a3d-lab-index {
+  background: rgba(255, 95, 134, 0.5);
+  color: #ffffff;
+}
+
+.a3d-lab-steptext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.a3d-lab-steptext strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f1f8f8;
+}
+
+.a3d-lab-steptext small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(206, 226, 229, 0.66);
+}
+
+.a3d-lab-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(198, 220, 223, 0.6);
+}
+
+/* 荷载 */
+.a3d-lab-value {
+  font-size: 11.5px;
+  color: #ffcf6a;
+}
+
+.a3d-lab-range {
+  width: 100%;
+  accent-color: #ffcf6a;
+}
+
+/* 工具与底部 */
+.a3d-lab-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.a3d-lab-tool {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 216, 224, 0.24);
+  background: rgba(10, 34, 43, 0.5);
+  color: #e8f3f4;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.a3d-lab-tool:hover,
+.a3d-lab-tool:focus-visible {
+  background: rgba(159, 216, 224, 0.16);
+}
+
+.a3d-lab-tool.is-active {
+  background: rgba(159, 216, 224, 0.28);
+  border-color: rgba(159, 216, 224, 0.66);
+  color: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .a3d-lab {
+    top: auto;
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 62vh;
+  }
+}

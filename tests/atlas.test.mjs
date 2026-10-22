@@ -1069,6 +1069,158 @@ for (const [id, entry] of atlas.buildings) {
   );
 }
 
+/* ---------------- 结构实验室：侧栏（桩 DOM 跑真代码） ---------------- */
+
+/**
+ * 实验室侧栏是纯 DOM 逻辑。用最小的桩 document 把五座桥各渲染一遍，
+ * 校验：选桥 chip、力流步骤数、当前步高亮、播放/拆解状态、回调是否接通。
+ */
+{
+  const makeElement = (tag) => {
+    const element = {
+      tag,
+      className: "",
+      textContent: "",
+      _html: "",
+      hidden: false,
+      type: "",
+      title: "",
+      value: "",
+      min: "",
+      max: "",
+      step: "",
+      dataset: {},
+      children: [],
+      listeners: {},
+      classList: {
+        set: new Set(),
+        add(name) {
+          this.set.add(name);
+        },
+        remove(name) {
+          this.set.delete(name);
+        },
+        toggle(name, force) {
+          const on = force === undefined ? !this.set.has(name) : force;
+          if (on) this.set.add(name);
+          else this.set.delete(name);
+          return on;
+        },
+        contains(name) {
+          return this.set.has(name);
+        }
+      },
+      setAttribute() {},
+      append(...nodes) {
+        this.children.push(...nodes);
+      },
+      addEventListener(type, handler) {
+        (this.listeners[type] = this.listeners[type] || []).push(handler);
+      },
+      querySelector() {
+        return null;
+      },
+      scrollIntoView() {},
+      remove() {}
+    };
+    Object.defineProperty(element, "innerHTML", {
+      get() {
+        return element._html;
+      },
+      set(value) {
+        element._html = value;
+        if (value === "") element.children.length = 0;
+      }
+    });
+    return element;
+  };
+
+  globalThis.document = {
+    createElement: makeElement,
+    createTextNode: (textContent) => ({ tag: "#text", textContent })
+  };
+
+  const { createLab } = await import("../app3d/lab.mjs");
+  const { FORCE_FLOW } = await import("../app3d/scene.mjs");
+
+  const collect = (node, className, found = []) => {
+    if (!node || typeof node !== "object") return found;
+    if (typeof node.className === "string" && node.className.split(/\s+/).includes(className)) {
+      found.push(node);
+    }
+    for (const child of node.children || []) collect(child, className, found);
+    return found;
+  };
+
+  const host = makeElement("aside");
+  const calls = { bridge: [], step: [], play: 0, explode: 0, open: [], legacy: 0 };
+  const lab = createLab(host, {
+    bridges: BRIDGES,
+    profiles: PROFILES,
+    onSelectBridge: (id) => calls.bridge.push(id),
+    onSelectStep: (index) => calls.step.push(index),
+    onTogglePlay: () => {
+      calls.play += 1;
+    },
+    onToggleExplode: () => {
+      calls.explode += 1;
+    },
+    onOpenBridge: (id) => calls.open.push(id),
+    onOpen2d: () => {
+      calls.legacy += 1;
+    }
+  });
+
+  for (const bridge of BRIDGES) {
+    const flow = FORCE_FLOW[bridge.id];
+    lab.show({ bridge, flow, step: 1, exploded: true, playing: true, load: 0.5 });
+
+    const chips = collect(host, "a3d-lab-chip");
+    checkTrue(`实验室有 5 个选桥 chip（${bridge.id}）`, chips.length === 5, `chips=${chips.length}`);
+    checkTrue(
+      `实验室高亮当前实验桥（${bridge.id}）`,
+      chips.filter((chip) => chip.classList.contains("is-active")).length === 1
+    );
+
+    const steps = collect(host, "a3d-lab-step");
+    checkTrue(
+      `实验室步骤数与力流一致（${bridge.id}）`,
+      steps.length === flow.length,
+      `steps=${steps.length} flow=${flow.length}`
+    );
+    checkTrue(
+      `实验室高亮第 2 步（${bridge.id}）`,
+      steps.filter((item) => item.classList.contains("is-active")).length === 1
+    );
+
+    // 点第 3 步 → 回调带对的索引
+    const before = calls.step.length;
+    for (const handler of steps[2].listeners.click || []) handler();
+    checkTrue(
+      `实验室步骤可点（${bridge.id}）`,
+      calls.step.length === before + 1 && calls.step[calls.step.length - 1] === 2,
+      calls.step.join(",")
+    );
+
+    // 拆解按钮的按下态跟随状态
+    const explodeButton = collect(host, "a3d-lab-tool").find((button) =>
+      button.textContent === "结构拆解"
+    );
+    checkTrue(`实验室有拆解按钮（${bridge.id}）`, Boolean(explodeButton));
+  }
+
+  // 选桥 chip 回调
+  const chips = collect(host, "a3d-lab-chip");
+  for (const handler of chips[3].listeners.click || []) handler();
+  checkTrue("选桥 chip 回调接通", calls.bridge.length === 1, calls.bridge.join(","));
+
+  // hide 之后收起
+  lab.hide();
+  checkTrue("实验室侧栏可收起", lab.isOpen === false && host.hidden === true);
+
+  delete globalThis.document;
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**

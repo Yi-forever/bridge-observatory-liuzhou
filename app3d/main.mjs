@@ -7,7 +7,8 @@
  *   - 列表视图中由 app.js 写入的旧格式 hash 与页内锚点，不会把用户拽进 3D。
  */
 
-import { BRIDGES, BRIDGE_BY_ID } from "./data.mjs";
+import { BRIDGES, BRIDGE_BY_ID, PROFILES } from "./data.mjs";
+import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
 import { createRouter, toHash } from "./state.mjs";
 
@@ -22,6 +23,7 @@ const els = {
   status: document.getElementById("sceneStatus"),
   bridgeList: document.getElementById("sceneBridgeList"),
   panel: document.getElementById("scenePanel"),
+  labPanel: document.getElementById("sceneLab"),
   btnExplode: document.getElementById("btnExplode"),
   btnBrowse: document.getElementById("btnBrowse"),
   btnReset: document.getElementById("btnResetView"),
@@ -59,8 +61,40 @@ let latestState = null;
 let returnButton = null;
 let router = null;
 let panel = null;
+let lab = null;
 /** 正在等待场景就绪的构件高亮（先跳视图、再高亮）。 */
 let pendingPart = null;
+
+/** 实验室的默认实验对象：文惠桥（M2 的垂直切片）。 */
+const LAB_DEFAULT_BRIDGE = "wenhui";
+
+/** 自动播放力流的定时器。 */
+let labTimer = null;
+
+/** 荷载（0..1）。P1 才接到场景上，P0 先存在状态里。 */
+let labLoad = 0;
+
+function stopLabPlayback() {
+  if (labTimer !== null) {
+    window.clearInterval(labTimer);
+    labTimer = null;
+  }
+}
+
+/** 当前实验室状态（视图、桥、步、拆解）。 */
+function labStateOf(state) {
+  return {
+    bridgeId: state.bridgeId || LAB_DEFAULT_BRIDGE,
+    step: Number.isInteger(state.step) ? state.step : null,
+    exploded: Boolean(state.exploded)
+  };
+}
+
+/** 力流步骤表：场景就绪后从 scene 取（FORCE_FLOW 在 scene.mjs 里）。 */
+function labFlow(bridgeId) {
+  if (!scene || !scene.forceFlow) return [];
+  return scene.forceFlow(bridgeId) || [];
+}
 
 /**
  * 从 3D 资料卡跳到 2D 的"结构实验室"章节。
@@ -134,10 +168,20 @@ function describe(state) {
     }
   }
   if (state.view === "lab") {
+    const { bridgeId, step } = labStateOf(state);
+    const bridge = BRIDGE_BY_ID.get(bridgeId);
+    const flow = labFlow(bridgeId);
+    const stepText =
+      Number.isInteger(step) && step >= 0 && flow[step]
+        ? `第 ${step + 1} 步 · ${flow[step]}`
+        : "选一步开始";
+    const profile = bridge ? PROFILES[bridge.model] : null;
     return {
       kicker: "M2 / STRUCTURE LAB",
-      title: "桥梁结构实验室",
-      sub: "建筑已就位 · 室内交互建设中（M3）。可先切到列表视图使用现有实验室页面。"
+      title: bridge ? `结构实验室 · ${bridge.name}` : "桥梁结构实验室",
+      sub: profile
+        ? `${stepText}。${profile.force}；${profile.question}`
+        : stepText
     };
   }
   if (state.view === "archive") {
@@ -232,6 +276,11 @@ function handlePick(pick) {
   }
 
   if (pick.type === "bridge") {
+    const state = router ? router.current : null;
+    if (state && state.view === "lab") {
+      window.location.hash = toHash({ ...state, bridgeId: pick.id, step: 0, exploded: false });
+      return;
+    }
     window.location.hash = `#bridge/${pick.id}`;
     return;
   }
@@ -263,7 +312,10 @@ function initScene() {
       }
     });
     scene = instance;
-    if (latestState) applyPanel(latestState);
+    if (latestState) {
+      applyPanel(latestState);
+      applyLab(latestState);
+    }
     return instance;
   })();
   return sceneInitPromise;
@@ -316,6 +368,34 @@ function applyPanel(state) {
   }
 }
 
+/** 实验室侧栏与场景同步；离开实验室视图时收起并停止播放。 */
+function applyLab(state) {
+  if (!lab) return;
+  if (!state || state.view !== "lab") {
+    lab.hide();
+    stopLabPlayback();
+    return;
+  }
+
+  const { bridgeId, step, exploded } = labStateOf(state);
+  const bridge = BRIDGE_BY_ID.get(bridgeId);
+  if (!bridge) {
+    lab.hide();
+    return;
+  }
+
+  const flow = labFlow(bridgeId);
+  lab.show({
+    bridge,
+    flow,
+    step: Number.isInteger(step) ? step : null,
+    exploded,
+    playing: labTimer !== null,
+    load: labLoad,
+    showLoad: Boolean(scene && scene.setLabLoad)
+  });
+}
+
 function renderBrowse() {
   renderedView = "browse";
   if (els.app3d) els.app3d.hidden = true;
@@ -361,6 +441,7 @@ function renderApp3d(state) {
   latestState = state;
   updateStatus(state);
   applyPanel(state);
+  applyLab(state);
   ensureSceneReady(state);
 }
 
@@ -394,6 +475,60 @@ function boot() {
 
   buildBridgeList();
   guardGuideIn3d();
+
+  if (els.labPanel) {
+    lab = createLab(els.labPanel, {
+      bridges: BRIDGES,
+      profiles: PROFILES,
+      loadNote: () => "",
+      onSelectBridge: (bridgeId) => {
+        const state = router ? router.current : null;
+        if (!state) return;
+        window.location.hash = toHash({
+          ...state,
+          view: "lab",
+          bridgeId,
+          step: 0,
+          exploded: false
+        });
+      },
+      onSelectStep: (index) => {
+        const state = router ? router.current : null;
+        if (!state) return;
+        stopLabPlayback();
+        window.location.hash = toHash({ ...state, step: index });
+      },
+      onTogglePlay: () => {
+        const state = router ? router.current : null;
+        if (!state) return;
+        if (labTimer !== null) {
+          stopLabPlayback();
+          lab.show({ playing: false });
+          return;
+        }
+        const flow = labFlow(labStateOf(state).bridgeId);
+        if (flow.length === 0) return;
+        const start = Number.isInteger(state.step) ? state.step : -1;
+        let cursor = start;
+        const advance = () => {
+          cursor = (cursor + 1) % flow.length;
+          window.location.hash = toHash({ ...router.current, step: cursor });
+        };
+        advance();
+        labTimer = window.setInterval(advance, 1800);
+        lab.show({ playing: true });
+      },
+      onToggleExplode: () => {
+        const state = router ? router.current : null;
+        if (!state) return;
+        window.location.hash = toHash({ ...state, exploded: !state.exploded });
+      },
+      onOpenBridge: (bridgeId) => {
+        window.location.hash = `#bridge/${bridgeId}`;
+      },
+      onOpen2d: () => openLegacyLab()
+    });
+  }
 
   if (els.panel) {
     panel = createPanel(els.panel, {
