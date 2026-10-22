@@ -218,29 +218,6 @@ function createTerrain(root, theme) {
   return { heightAt, surfaceHeightAt };
 }
 
-/**
- * 螺旋搜索一块可用空地。返回 null 表示 5 单位内都没找到，
- * 调用方退回原首选项（宁可压楼，也不要场馆跑到画面外）。
- */
-function findVenueSpot(origin, fits) {
-  const STEP = 0.5;
-  const MAX_RADIUS = 5;
-
-  if (fits(origin[0], origin[1])) return origin;
-
-  for (let radius = STEP; radius <= MAX_RADIUS; radius += STEP) {
-    const steps = Math.max(8, Math.round((Math.PI * 2 * radius) / STEP));
-    for (let i = 0; i < steps; i += 1) {
-      const angle = (i / steps) * Math.PI * 2;
-      const x = origin[0] + Math.cos(angle) * radius;
-      const z = origin[1] + Math.sin(angle) * radius;
-      if (fits(x, z)) return [x, z];
-    }
-  }
-
-  return null;
-}
-
 /** 与 three 的 smoothstep 同义，这里自己写一份以免依赖工具函数。 */
 function smoothstep(t) {
   const x = Math.max(0, Math.min(1, t));
@@ -909,7 +886,13 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
   }
 
   const crownY = springY + mainRise + ribRadius;
-  return { group: builder.finish(), top: crownY + 0.12 };
+
+  // 必须把桥面标高挂到模型组上：荷载实验的挠度曲线、荷载箭头与读数
+  // 都靠 scene.mjs 的 bridgeMetrics 从这里读 deckTop。原先漏了这一行，
+  // 导致文惠桥的荷载实验静默失效（没有曲线、没有读数、不报错）。
+  const finished = builder.finish();
+  finished.userData.deckTop = deckTop;
+  return { group: finished, top: crownY + 0.12 };
 }
 
 /**

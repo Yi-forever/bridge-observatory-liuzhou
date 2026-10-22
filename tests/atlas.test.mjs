@@ -1862,6 +1862,72 @@ for (const bridge of GEO.bridges) {
   checkTrue("无关按键不处理", presentKeyToHash("z", order[0], order) === null);
 }
 
+/* ---------------- 荷载实验的几何前提 ---------------- */
+
+/**
+ * 踩过的坑：文惠桥的模型组漏了 `userData.deckTop`，而 scene.mjs 的 bridgeMetrics
+ * 正是靠这个字段找模型组。于是文惠桥的荷载实验**静默失效**——不报错，
+ * 但挠度曲线、荷载箭头、读数全都不出现（力流高亮是另一条路径，看起来"还是好的"，更容易漏）。
+ *
+ * 这里直接拿真实的 atlas 量：每座桥的模型组都要有 deckTop，
+ * 且挠度曲线图必须落在水面以上、倍数在合理区间。
+ */
+{
+  const { buildAtlas } = await import("../app3d/atlas.mjs");
+  const { diagramFor } = await import("../app3d/deflection.mjs");
+
+  const scene = buildAtlas();
+  const box = new THREE.Box3();
+  const temp = new THREE.Box3();
+  const measured = {};
+
+  for (const bridge of BRIDGES) {
+    const entry = scene.bridges.get(bridge.id);
+    checkTrue(`${bridge.id} 有场景条目`, Boolean(entry));
+    if (!entry) continue;
+
+    // 与 scene.mjs bridgeMetrics 相同的查找条件
+    const model = entry.group.children.find(
+      (child) => child.isGroup && child.userData && typeof child.userData.deckTop === "number"
+    );
+    checkTrue(
+      `${bridge.id} 模型组带 deckTop（荷载实验的前提）`,
+      Boolean(model),
+      "缺这个字段时荷载实验会静默失效"
+    );
+    if (!model) continue;
+
+    const deckTop = model.userData.deckTop;
+    checkTrue(`${bridge.id} deckTop 是有限数`, Number.isFinite(deckTop) && deckTop > 0.1, String(deckTop));
+
+    box.makeEmpty();
+    model.updateMatrixWorld(true);
+    for (const child of model.children) {
+      if (!child.isMesh || (child.userData && child.userData.noPick)) continue;
+      temp.setFromObject(child);
+      box.union(temp);
+    }
+    const halfLength = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+    checkTrue(`${bridge.id} 半跨量级合理（1–5 单位）`, halfLength > 1 && halfLength < 5, halfLength.toFixed(2));
+
+    const base = Number(bridge.deflectionBase) || 4;
+    const full = diagramFor(base, 1, halfLength);
+    const bottom = deckTop + 0.3 - full.sag;
+
+    checkTrue(`${bridge.id} 挠度曲线底端在水面以上`, bottom > 0, bottom.toFixed(2));
+    checkTrue(`${bridge.id} 放大倍数在 500–5000 之间`, full.factor >= 500 && full.factor <= 5000, `×${full.factor}`);
+    measured[bridge.id] = { halfLength, deckTop, factor: full.factor, bottom };
+  }
+
+  // 把实测值记进失败信息里，便于核对文档（文档里的倍数必须落在实测范围）
+  const factors = Object.values(measured).map((item) => item.factor);
+  checkTrue(
+    "五座桥的倍数都算得出来",
+    factors.length === BRIDGES.length && factors.every((value) => value > 0),
+    JSON.stringify(measured)
+  );
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
