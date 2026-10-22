@@ -3,7 +3,7 @@
  *
  * 地址约定：
  *   #atlas                       城市总览
- *   #bridge/<id>                 单桥场景（可选 ?mode=force|night&explode=1）
+ *   #bridge/<id>                 单桥场景（可选 ?mode=force&explode=1）
  *   #lab                         结构实验室
  *   #archive                     档案馆
  *   #browse                      列表视图（降级 / 无障碍）
@@ -13,7 +13,8 @@
 import { BRIDGE_IDS } from "./data.mjs";
 
 export const VIEWS = ["atlas", "bridge", "lab", "archive", "browse"];
-export const MODES = ["structure", "force", "night"];
+// 夜景（night）已按要求移除；旧的 ?mode=night 链接会被 normalizeMode 回落成 structure。
+export const MODES = ["structure", "force"];
 
 function normalizeMode(mode) {
   return MODES.includes(mode) ? mode : "structure";
@@ -22,7 +23,7 @@ function normalizeMode(mode) {
 /** 是否为旧版 `#bridge=wenhui&mode=force` 形式的链接。 */
 export function isLegacyHash(hash = window.location.hash) {
   const raw = String(hash).replace(/^#/, "").trim();
-  // 新格式带路径分隔符（#bridge/wenhui?mode=night），即使含 "=" 也不是旧格式。
+  // 新格式带路径分隔符（#bridge/wenhui?mode=force），即使含 "=" 也不是旧格式。
   if (!raw || raw.includes("/")) return false;
   return /^[A-Za-z][A-Za-z0-9_]*=/.test(raw);
 }
@@ -89,13 +90,14 @@ export function parseHash(hash = window.location.hash) {
 /**
  * 状态对象 → hash 字符串。
  *
- * mode / explode 对**所有视图**都要写进去：夜景是整场的外观，
- * 在总览里也要能切——早先只在 bridge 视图带上参数，于是"在总览点夜景"点了没反应。
+ * mode / explode 对**所有视图**都要写进去：拆解与受力是整场的状态，
+ * 早先只在 bridge 视图带上参数，于是"在总览改状态"点了没反应。
  */
 export function toHash(state) {
   const view = VIEWS.includes(state.view) ? state.view : "atlas";
+  const mode = normalizeMode(state.mode); // 已移除的模式（如 night）不写进地址
   const params = new URLSearchParams();
-  if (state.mode && state.mode !== "structure") params.set("mode", state.mode);
+  if (mode !== "structure") params.set("mode", mode);
   if (state.exploded) params.set("explode", "1");
   const query = params.toString();
   const suffix = query ? `?${query}` : "";

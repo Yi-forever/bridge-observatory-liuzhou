@@ -124,8 +124,6 @@ function describe(state) {
       let sub = `${bridge.year} 年 · ${bridge.type} · 点桥上的构件可以单独高亮，右侧资料卡会跟着定位。`;
       if (state.mode === "force") {
         sub = "力流演示：桥面 → 承重构件 → 墩座，逐级高亮（玫红），右侧资料卡同步讲解。";
-      } else if (state.mode === "night") {
-        sub = "柳江夜色：天色、灯光与水面换成夜间参数，桥体亮灯；点构件仍然可查。";
       }
       if (state.exploded) sub += " 已拆解：构件按层拉开，能看清谁压在谁上面。";
       return {
@@ -152,9 +150,7 @@ function describe(state) {
   const atlasSub =
     state.mode === "force"
       ? "选一座桥再切到「受力」，就会逐级演示荷载怎么往下传。"
-      : state.mode === "night"
-        ? "柳江夜色：拖动环视，滚轮以光标为中心缩放。"
-        : "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。";
+      : "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。";
   return {
     kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",

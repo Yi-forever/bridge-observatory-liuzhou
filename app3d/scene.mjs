@@ -108,11 +108,10 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // 主题是可变状态：夜景在运行时切换，不重建几何（见 applyTheme）
-  let theme = getTheme();
+  const theme = getTheme();
 
   const scene = new THREE.Scene();
-  let sky = skyTexture(theme);
+  const sky = skyTexture(theme);
   scene.background = sky;
   // 同一张天色也当环境贴图：亮场景里水面没有反射会像塑料片，
   // 不引入任何外部图片，用天空自身就够了。
@@ -166,67 +165,6 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
 
   const atlas = buildAtlas({ theme: theme.id });
   scene.add(atlas.root);
-
-  /**
-   * 切换主题（day / night）。
-   *
-   * 不重建几何：天色、雾、三盏灯重新取值，材质按 name 查 theme.materials 重上色。
-   * 地形是顶点色，靠压暗 material.color 收光；桥梁自发光基线交给 atlas.setGlowBase。
-   */
-  function applyTheme(themeId) {
-    const next = getTheme(themeId);
-    if (next.id === theme.id) return next.id;
-    theme = next;
-
-    if (sky) sky.dispose();
-    sky = skyTexture(next);
-    scene.background = sky;
-    scene.environment = sky;
-    scene.fog.color.set(next.fog.color);
-    scene.fog.near = next.fog.near;
-    scene.fog.far = next.fog.far;
-
-    hemi.color.set(next.lights.hemiSky);
-    hemi.groundColor.set(next.lights.hemiGround);
-    hemi.intensity = next.lights.hemiIntensity;
-
-    sun.color.set(next.lights.sunColor);
-    sun.intensity = next.lights.sunIntensity;
-    sun.position.set(
-      next.lights.sunPosition.x,
-      next.lights.sunPosition.y,
-      next.lights.sunPosition.z
-    );
-
-    fill.color.set(next.lights.fillColor);
-    fill.intensity = next.lights.fillIntensity;
-    fill.position.set(
-      next.lights.fillPosition.x,
-      next.lights.fillPosition.y,
-      next.lights.fillPosition.z
-    );
-
-    const night = next.id === "night";
-    atlas.root.traverse((object) => {
-      if (!object.isMesh) return;
-      const material = object.material;
-      if (!material || Array.isArray(material)) return;
-      if (material.name === "terrain") {
-        // 顶点色不能逐点重算，整体压暗即可
-        material.color.set(night ? "#5b615b" : "#ffffff");
-        return;
-      }
-      if (material.name === "water") {
-        material.roughness = next.water.roughness;
-        material.metalness = next.water.metalness;
-      }
-      const hex = next.materials[material.name];
-      if (hex) material.color.set(hex);
-    });
-
-    atlas.setGlowBase(night ? 0.42 : 0.12);
-    return next.id;
-  }
 
   const homeTarget = new THREE.Vector3(atlas.center.x, 0, atlas.center.z);
 
@@ -599,9 +537,6 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   /* ---------------- 状态 ---------------- */
 
   function setState(state) {
-    // 夜景：mode === "night" 时整场切成夜色主题（材质/灯光/天色一起换）
-    applyTheme(state.mode === "night" ? "night" : "day");
-
     // 受力演示：只在单桥视图、且 mode === "force" 时跑
     const wantForce = state.mode === "force" && state.view === "bridge" ? state.bridgeId : null;
     if (wantForce) {
@@ -718,11 +653,6 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     setForceFlow: (bridgeId) => {
       stopForce();
       if (bridgeId) startForce(bridgeId);
-    },
-    /** 主动切换主题（day / night），返回最终生效的主题 id。 */
-    applyTheme,
-    get themeId() {
-      return theme.id;
     },
     /** 高亮某个构件；返回 { id, label } 或 null。 */
     highlightPart: (bridgeId, partId) => atlas.highlightPart(bridgeId, partId),

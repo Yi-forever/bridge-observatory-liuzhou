@@ -817,7 +817,7 @@ body.app3d-active {
   }
 }
 
-/* 三态显示模式：结构 / 受力 / 夜景 */
+/* 显示模式：结构 / 受力 */
 .a3d-modes {
   display: flex;
   align-items: center;

@@ -887,51 +887,31 @@ for (const [id, entry] of atlas.buildings) {
   delete globalThis.document;
 }
 
-/* ---------------- 夜景主题 ---------------- */
+/* ---------------- 主题：只剩 day，且构建路径仍然成立 ---------------- */
 
 /**
- * 主题参数化之后，日/夜走同一条构建路径，只有颜色与光照不同。
- * 这里守住"夜不是换了个名字的白天"：关键材质色必须真的变了。
+ * 夜景（night）2026-10-22 按要求砍掉。这里守住两件事：
+ *   1. 主题参数化没被拆坏——传一个不存在的主题要能安全回落到 day；
+ *   2. 每个角色材质都还有 name（恢复主题时要靠它重上色）。
  */
 {
   const day = buildAtlas();
-  const night = buildAtlas({ theme: "night" });
+  const fallback = buildAtlas({ theme: "night" });
 
-  checkTrue("夜间主题可用", night.theme.id === "night", night.theme.id);
-  checkTrue("夜间主题有名字", typeof night.theme.label === "string" && night.theme.label.length > 0);
+  checkTrue("默认主题是 day", day.theme.id === "day", day.theme.id);
+  checkTrue(
+    "不存在的主题回落到 day",
+    fallback.theme.id === "day",
+    fallback.theme.id
+  );
 
-  const pickColor = (atlas, name) => {
-    let found = null;
-    atlas.root.traverse((object) => {
-      if (!object.isMesh) return;
-      if (object.material && object.material.name === name) found = object.material;
-    });
-    return found;
-  };
-
-  for (const name of ["concrete", "deck", "water", "lab", "archive", "frame"]) {
-    const dayMaterial = pickColor(day, name);
-    const nightMaterial = pickColor(night, name);
-    checkTrue(`白天有 ${name} 材质`, Boolean(dayMaterial));
-    checkTrue(`夜间有 ${name} 材质`, Boolean(nightMaterial));
-    if (dayMaterial && nightMaterial) {
-      checkTrue(
-        `${name} 在夜间换了颜色`,
-        dayMaterial.color.getHex() !== nightMaterial.color.getHex(),
-        `day=#${dayMaterial.color.getHexString()} night=#${nightMaterial.color.getHexString()}`
-      );
-    }
-  }
-
-  // 水面反射参数也要跟着换
-  const dayWater = pickColor(day, "water");
-  const nightWater = pickColor(night, "water");
-  if (dayWater && nightWater) {
-    checkTrue(
-      "夜间水面金属度更高",
-      nightWater.metalness > dayWater.metalness,
-      `day=${dayWater.metalness} night=${nightWater.metalness}`
-    );
+  const names = new Set();
+  day.root.traverse((object) => {
+    if (!object.isMesh) return;
+    if (object.material && object.material.name) names.add(object.material.name);
+  });
+  for (const name of ["concrete", "deck", "water", "frame", "lab", "archive", "terrain"]) {
+    checkTrue(`材质 ${name} 带角色名（恢复主题时要用）`, names.has(name), [...names].join(","));
   }
 }
 
@@ -1049,11 +1029,16 @@ for (const [id, entry] of atlas.buildings) {
   }
   check("地址栏状态可无损往返", mismatches, 0);
 
-  // 夜景即使不在单桥视图也要进 hash
+  // mode 即使不在单桥视图也要进 hash
   checkTrue(
-    "总览视图的夜景写进 hash",
-    toHash({ view: "atlas", bridgeId: null, mode: "night", exploded: false }) === "#atlas?mode=night",
-    toHash({ view: "atlas", bridgeId: null, mode: "night", exploded: false })
+    "总览视图的受力模式写进 hash",
+    toHash({ view: "atlas", bridgeId: null, mode: "force", exploded: false }) === "#atlas?mode=force",
+    toHash({ view: "atlas", bridgeId: null, mode: "force", exploded: false })
+  );
+  checkTrue(
+    "已移除的夜景链接降级为 structure",
+    parseHash("#bridge/baisha?mode=night").mode === "structure",
+    parseHash("#bridge/baisha?mode=night").mode
   );
   checkTrue(
     "拆解在单桥视图写进 hash",

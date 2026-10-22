@@ -4,9 +4,10 @@
  * 约定：
  * - 这里只放**纯数据**（颜色字符串、数值），不创建 three 对象，
  *   这样 `atlas.mjs` 可以在 Node 测试里被导入，不需要 DOM 或 WebGL。
- * - day 与 night 都已生效：scene.applyTheme() 会按这里的取值换天色、雾、三盏灯，
- *   并按材质 name 重上色（concrete / deck / water / frame / lab / archive / terrain）。
- *   新增材质时记得给它一个 name，否则夜景不会跟着变色。
+ * - 只保留 day 一个主题。夜景（night）做过一版运行时切换，2026-10-22 按要求砍掉，
+ *   见 docs/3D重构开发计划.md 的 v4.3 记录；需要恢复时把 night 取值加回 THEMES 即可。
+ *   atlas 仍接受 { theme } 参数，材质也保留了 name（concrete / deck / water / frame /
+ *   lab / archive / terrain），恢复主题时不用再改一遍材质代码。
  */
 
 export const THEMES = {
@@ -63,54 +64,9 @@ export const THEMES = {
        */
       exaggeration: 3
     }
-  },
+  }};
 
-  night: {
-    id: "night",
-    label: "柳江夜色",
-    ready: true,
-    sky: {
-      zenith: "#0b1a2b",
-      horizon: "#1d3b52",
-      ground: "#0a1418"
-    },
-    fog: { color: "#13293d", near: 220, far: 1100 },
-    lights: {
-      hemiSky: "#2b4a63",
-      hemiGround: "#0a1418",
-      hemiIntensity: 0.5,
-      sunColor: "#9fc0e0",
-      sunIntensity: 0.35,
-      sunPosition: { x: -90, y: 160, z: 40 },
-      fillColor: "#3f6f86",
-      fillIntensity: 0.3,
-      fillPosition: { x: 110, y: 60, z: -80 }
-    },
-    water: { metalness: 0.35, roughness: 0.12 },
-    materials: {
-      ground: "#121a1d",
-      water: "#0f2b36",
-      concrete: "#3a4a50",
-      deck: "#455a63",
-      blockA: "#1b2b34",
-      blockB: "#233640",
-      lab: "#2f5d64",
-      archive: "#4a4258",
-      glow: "#ffcf9a"
-    },
-    terrain: {
-      basin: "#1a2320",
-      slope: "#26301f",
-      rock: "#2b2b28",
-      ridge: "#1b2419",
-      exaggeration: 3
-    },
-
-
-  }
-};
-
-/** 默认主题：进场景是白天，夜景由状态里的 mode=night 触发。 */
+/** 默认（也是唯一）主题。 */
 export const DEFAULT_THEME = "day";
 
 export function getTheme(id = DEFAULT_THEME) {

@@ -60,8 +60,8 @@ const PIER_BASE = -0.25;
 /**
  * 主题里只有纯数据；这里按传入的主题现算材质色。
  *
- * 早先是模块级常量，导致"换主题"只能靠重新 import——夜景接上以后
- * 必须在运行时重建场景，所以改成参数一路传下去。
+ * 早先是模块级常量；改成参数后，测试与将来的配色实验可以换主题构建，
+ * 不必重新 import 模块。
  */
 const toHex = (value) => new THREE.Color(value).getHex();
 
@@ -1521,9 +1521,8 @@ function buildArchiveBuilding(COLOR) {
 /**
  * 构建整个场景内容。
  *
- * @param {{ theme?: string }} [options] theme 是主题 id（day / night）。
- *   夜景要能运行时切换，所以主题不再由模块级常量决定；换主题 = 重建一次场景，
- *   走的是同一条代码路径，不会留下半套旧颜色。
+ * @param {{ theme?: string }} [options] theme 是主题 id（目前只有 day）。
+ *   主题由参数传入，配色全部从这里推导，改动配色只需改 theme.mjs。
  */
 export function buildAtlas(options = {}) {
   const theme = getTheme(options.theme);
@@ -1616,12 +1615,11 @@ export function buildAtlas(options = {}) {
     const meta = BRIDGES.find((item) => item.id === geoBridge.id);
     if (!meta) continue;
 
-    // 夜景里桥得"亮起来"：自发光基线抬高，白天回到 0.12。
-    // 强调（选中/悬停）仍在此基础上叠加，见 emphasisFor()。
+    // 自发光基线 0.12：强调（选中/悬停）在此之上叠加，见 emphasisFor()。
     const accent = new THREE.MeshStandardMaterial({
       color: new THREE.Color(meta.accent),
       emissive: new THREE.Color(meta.accent),
-      emissiveIntensity: theme.id === "night" ? 0.42 : 0.12,
+      emissiveIntensity: 0.12,
       roughness: 0.55,
       metalness: 0.12
     });
@@ -1801,9 +1799,8 @@ export function buildAtlas(options = {}) {
   let selection = { view: "atlas", bridgeId: null };
   let hoveredKey = null;
 
-  // 自发光基线：白天 0.12，夜景 0.42（桥像被泛光灯照着）。
-  // 强调（选中/悬停）在此基础上叠加，换主题时由 setGlowBase 更新。
-  let glowBase = theme.id === "night" ? 0.42 : 0.12;
+  // 自发光基线：强调（选中/悬停）在此基础上叠加。
+  const glowBase = 0.12;
 
   // 构件高亮：复用构件几何建一层半透明"幽灵"，只加材质不加顶点。
   // 直接用材质改发光是不行的——同一材质被多个构件共用，改一个会亮一片。
@@ -1956,12 +1953,6 @@ export function buildAtlas(options = {}) {
     }
   }
 
-  /** 换主题时调整桥梁自发光基线（不重建几何）。 */
-  function setGlowBase(value) {
-    glowBase = value;
-    apply();
-  }
-
   function setHover(key) {
     // 构件悬停按桥级强调处理：key 形如 part:<bridgeId>:<partId>，
     // 归一成 bridge:<bridgeId> 再比较，省一套额外的强调逻辑。
@@ -1999,7 +1990,7 @@ export function buildAtlas(options = {}) {
   return {
     root,
     pickables,
-    theme: { id: theme.id, label: theme.label, night: theme.id === "night" },
+    theme: { id: theme.id, label: theme.label },
     bridges,
     buildings,
     labels: labelItems,
@@ -2010,7 +2001,6 @@ export function buildAtlas(options = {}) {
     window: viewWindow,
     setSelection,
     setHover,
-    setGlowBase,
     setExploded,
     updateExplode,
     explodeOffsets: EXPLODE_OFFSET,
