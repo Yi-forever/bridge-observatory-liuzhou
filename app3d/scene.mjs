@@ -16,7 +16,7 @@
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "./atlas.mjs";
 import { BRIDGE_BY_ID } from "./data.mjs";
-import { DEFLECTION_EXAGGERATION, deflectionCm, sagUnits } from "./deflection.mjs";
+import { diagramFor, labelFor } from "./deflection.mjs";
 import { forceEntries } from "./force-map.mjs";
 import { createLabels } from "./labels.mjs";
 import { getTheme } from "./theme.mjs";
@@ -48,8 +48,8 @@ const LIMITS = {
 /** 聚焦距离：真实桥只有 3–7 个单位长，必须拉近才看得清结构。 */
 const FOCUS = {
   bridge: 9,
-  /** 实验词条打开时：比资料卡再近一点，构件才看得清。 */
-  lab: 7.5
+  /** 实验词条打开时：比资料卡再近一点，挠度曲线图才看得清。 */
+  lab: 6.5
 };
 
 const CLICK_THRESHOLD = 6;
@@ -267,12 +267,19 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   const baselineMaterial = new THREE.LineDashedMaterial({ color: 0x9fd8e0, dashSize: 0.06, gapSize: 0.05, transparent: true, opacity: 0.45 });
   // 下沉区域用半透明面填起来：只画一条线在远景里太细，几乎看不见
   const bandMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffb020,
+    color: 0xffa726,
     transparent: true,
-    opacity: 0.3,
+    opacity: 0.45,
     side: THREE.DoubleSide,
     depthWrite: false
   });
+
+  /**
+   * 曲线图基线：画在桥面上方 0.30 单位（30 m）处。
+   * 挠度不画在桥面上——桥面离水面只有 0.24–0.43 单位，
+   * 放大到看得见的幅度就会沉到水面以下，看着像桥塌了。
+   */
+  const DIAGRAM_BASELINE = 0.3;
 
   const labOverlay = {
     bridgeId: null,
@@ -397,6 +404,7 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
       object.castShadow = false;
       object.receiveShadow = false;
     });
+    // 荷载箭头贴在桥面上；曲线图的基线在桥面上方 0.30，两者不重叠
     marker.position.set(0, metrics.deckTop + 0.01, 0);
     metrics.model.add(marker);
 
@@ -413,13 +421,19 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     band.renderOrder = 1;
 
     // 模型旁边直接写清楚"这是夸张效果"，别让人把示意当实测
-    const label = textSprite(`挠度放大 ×${DEFLECTION_EXAGGERATION}`);
+    // 放大倍数按这座桥的真实挠度现算（两位有效数字），标签与画面幅度严格对应
+    const referenceBridge = BRIDGE_BY_ID.get(bridgeId);
+    const reference = diagramFor(
+      referenceBridge ? Number(referenceBridge.deflectionBase) || 4 : 4,
+      1,
+      metrics.halfLength
+    );
+    const label = textSprite(labelFor(reference.factor));
     label.userData.noPick = true;
-    // 用世界单位的固定尺寸（约 70 m 宽），远近都读得出来；不随桥长缩放，
-    // 否则柳江这种短桥上会被拉成一块巨型招牌。
-    label.scale.set(0.7, 0.175, 1);
-    // 放在跨中偏左：跨中留给荷载箭头，别互相压住
-    label.position.set(-metrics.halfLength * 0.52, metrics.deckTop + 0.1, 0);
+    // 固定世界尺寸（约 80 m 宽），远近都读得出来；不随桥长缩放
+    label.scale.set(0.8, 0.2, 1);
+    // 贴在曲线图上方，跨中偏左（跨中留给荷载箭头）
+    label.position.set(-metrics.halfLength * 0.5, DIAGRAM_BASELINE + 0.09, 0);
 
     metrics.model.add(line, baseline, band, label);
 
@@ -437,7 +451,7 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   function paintDeflection(state, sag) {
     const { metrics, line, baseline, band } = state;
     const steps = 48;
-    const deckY = metrics.deckTop + 0.012;
+    const deckY = metrics.deckTop + DIAGRAM_BASELINE;
     const curve = new Float32Array((steps + 1) * 3);
     const flat = new Float32Array((steps + 1) * 3);
     // 色带：上沿是原位置、下沿是下沉后的曲线，两两组成三角
@@ -503,9 +517,10 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     const bridge = BRIDGE_BY_ID.get(bridgeId);
     const deflectionBase = bridge ? Number(bridge.deflectionBase) || 4 : 4;
 
-    // 换算集中在 app3d/deflection.mjs：真实下沉（厘米）与画面下沉（世界单位）
-    const realCm = deflectionCm(deflectionBase, clamped);
-    const sag = sagUnits(deflectionBase, clamped);
+    // 换算集中在 app3d/deflection.mjs：真实下沉（厘米）＋曲线图摆幅（世界单位）＋放大倍数
+    const diagram = diagramFor(deflectionBase, clamped, state.metrics.halfLength);
+    const realCm = diagram.realCm;
+    const sag = diagram.sag;
 
     const visible = clamped > 0.001;
     state.marker.visible = visible;
@@ -520,7 +535,7 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
       load: clamped,
       realCm,
       sag,
-      exaggeration: DEFLECTION_EXAGGERATION,
+      exaggeration: diagram.factor,
       halfLength: state.metrics.halfLength
     };
   }
@@ -954,8 +969,8 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     resetView,
     /** 手动定位力流步骤（实验室用）；返回命中的构件 id。 */
     setForceStep,
-    /** 挠度的图形放大倍数（界面上必须明示）。 */
-    deflectionExaggeration: DEFLECTION_EXAGGERATION,
+    /** 曲线图放大倍数说明（按桥现算，见 setLabLoad 的返回值）。 */
+    deflectionNote: "挠度曲线图为示意：基线在桥面上方，幅度按半跨比例绘制",
     /** 实验室：设置荷载（0..1），返回读数。 */
     setLabLoad,
     /** 实验室：压/拉配色开关。 */

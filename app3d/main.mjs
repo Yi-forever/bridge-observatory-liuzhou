@@ -16,7 +16,7 @@ import {
   SOURCES,
   SOURCE_LIBRARY
 } from "./data.mjs";
-import { EXAGGERATION_LABEL, DEFLECTION_EXAGGERATION } from "./deflection.mjs";
+import { diagramFor } from "./deflection.mjs";
 import { FORCE_LEGEND } from "./force-map.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
@@ -78,6 +78,8 @@ let pendingPart = null;
 let labTimer = null;
 /** 荷载读数文案（由场景回传）。 */
 let labLoadText = "";
+/** 曲线图的放大倍数说明（按桥现算，拿到第一帧读数后才有）。 */
+let labBadgeLabel = "";
 /** 荷载地址防抖定时器（拖滑杆时不反复写历史）。 */
 let loadCommitTimer = null;
 
@@ -451,13 +453,22 @@ function applyExperiment(state) {
     loadText: labLoadText,
     forceColors: current.colors,
     showLoad: Boolean(scene && scene.setLabLoad),
-    exaggerationLabel: EXAGGERATION_LABEL,
+    exaggerationLabel: labBadgeLabel || initialBadgeLabel(state.bridgeId),
     // 收起态：实验进行到哪一步、荷载多少、下沉几厘米，一眼能看到
     collapsed: !state.exp,
     readout: experimentReadout(state, flow),
   });
   if (state.exp) applyExperimentVisuals(state);
   bindSheet(els.labPanel);
+}
+
+/** 没拖过滑杆时，也先把这座桥的放大倍数算出来显示在徽标上。 */
+function initialBadgeLabel(bridgeId) {
+  const bridge = bridgeId ? BRIDGE_BY_ID.get(bridgeId) : null;
+  if (!bridge) return "挠度曲线为放大示意";
+  // 场景还没就绪时拿不到真实半跨，先用一个中性值；setLabLoad 回来后会用真实值覆盖
+  const diagram = diagramFor(Number(bridge.deflectionBase) || 4, 1, 2.2);
+  return `挠度曲线放大 ×${diagram.factor} · 教学示意`;
 }
 
 /** 实验读数：第几步 / 构件名 / 荷载百分比 / 下沉值，收起态与 HUD 共用。 */
@@ -505,11 +516,15 @@ function applyExperimentVisuals(state) {
   }
 
   const info = scene.setLabLoad ? scene.setLabLoad(bridgeId, current.load) : null;
-  labLoadText = !info
-    ? ""
-    : info.load <= 0.001
-      ? `拖到 0 以上看荷载怎么传下去。画面里的下沉是放大了 ${DEFLECTION_EXAGGERATION} 倍的示意，不是精确计算。`
-      : `跨中下沉约 ${info.realCm.toFixed(1)} cm——画面按 ×${DEFLECTION_EXAGGERATION} 放大显示。`;
+  if (info && info.exaggeration > 0) {
+    labBadgeLabel = `挠度曲线放大 ×${info.exaggeration} · 教学示意`;
+    labLoadText =
+      info.load <= 0.001
+        ? "拖到 0 以上看荷载怎么传下去。桥面上方那条曲线是放大后的挠度示意，不是精确计算。"
+        : `跨中下沉约 ${info.realCm.toFixed(1)} cm——桥面上方的曲线按 ×${info.exaggeration} 放大绘制。`;
+  } else {
+    labLoadText = "";
+  }
 
   if (lab && lab.isOpen) lab.show({ load: current.load, loadText: labLoadText });
 }

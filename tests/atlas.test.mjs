@@ -1739,56 +1739,69 @@ for (const bridge of GEO.bridges) {
   for (const name of panelCallbacks) check(name, panelOptions, "createPanel");
 }
 
-/* ---------------- 挠度：放大倍数与量级 ---------------- */
+/* ---------------- 挠度曲线图：摆幅、倍数与量级 ---------------- */
 
 /**
- * 真实跨中下沉是"几厘米"，在 1:100 的模型里只有 0.000x 单位——看不清。
- * 所以画面上的下沉是放大的，倍数必须写成常数、并在界面上明示。
+ * 挠度不画在桥面上：桥面离水面只有 0.24–0.43 单位，放大到看得见就会沉进水里。
+ * 所以画成桥面上方的一幅"曲线图"，摆幅按半跨比例固定（DIAGRAM_RATIO），
+ * 放大倍数按每座桥的真实挠度现算、取两位有效数字后写进标签。
  *
- * 这里守住四件事：
- *   1. 换算恒等式：画面下沉(单位) 与 真实下沉(cm) 的比值恒等于放大倍数；
- *   2. 量级合适：满荷载时下沉约 0.06–0.2 单位（约桥长的 1%–5%，看得见但不夸张）；
- *   3. 线性：半载是满载的一半；
- *   4. 倍数写进了给用户看的文案里。
+ * 守住四件事：
+ *   1. 标签上的倍数与画面摆幅严格对应（sag == 真实单位 × 倍数）；
+ *   2. 摆幅落在半跨的固定比例附近（好看又不出水面）；
+ *   3. 半载是满载的一半、倍数不随荷载变；
+ *   4. 曲线底端必须在水面以上（否则看着像桥塌了）。
  */
 {
-  const {
-    DEFLECTION_EXAGGERATION,
-    deflectionCm,
-    sagUnits,
-    EXAGGERATION_LABEL
-  } = await import("../app3d/deflection.mjs");
-
-  checkTrue("放大倍数是个明确的常数", DEFLECTION_EXAGGERATION >= 100, `×${DEFLECTION_EXAGGERATION}`);
-  checkTrue(
-    "文案里写明了放大倍数",
-    EXAGGERATION_LABEL.includes(`×${DEFLECTION_EXAGGERATION}`),
-    EXAGGERATION_LABEL
+  const { diagramFor, deflectionCm, realSagUnits, niceFactor, DIAGRAM_RATIO, labelFor } = await import(
+    "../app3d/deflection.mjs"
   );
 
-  const bases = { liujiang: 8, wenhui: 3.2, wenchang: 6.5, baisha: 5.5, fenghuangling: 4.2 };
+  // 倍数取两位有效数字
+  checkTrue("倍数四舍五入到两位有效数字", niceFactor(1034) === 1000 && niceFactor(258) === 260, `${niceFactor(1034)}/${niceFactor(258)}`);
 
-  for (const [id, base] of Object.entries(bases)) {
-    const cm = deflectionCm(base, 1);
-    const sag = sagUnits(base, 1);
-    // 真实下沉 0.4 单位/cm？不：1 单位 = 100 m，所以 1 cm → 1e-4 单位
-    const ratio = sag / (cm / 10000);
+  const cases = [
+    // [id, deflectionBase, 半跨, 桥面标高]
+    ["liujiang", 8, 1.68, 0.24],
+    ["wenhui", 3.2, 2.8, 0.3],
+    ["wenchang", 6.5, 3.36, 0.35],
+    ["baisha", 5.5, 2.0, 0.27],
+    ["fenghuangling", 4.2, 2.67, 0.37]
+  ];
+
+  for (const [id, base, half, deckTop] of cases) {
+    const full = diagramFor(base, 1, half);
+    const realUnits = realSagUnits(base, 1);
+
+    checkTrue(`${id} 真实下沉是几厘米量级`, deflectionCm(base, 1) > 0.5 && deflectionCm(base, 1) < 8, `${deflectionCm(base, 1).toFixed(1)} cm`);
     checkTrue(
-      `${id} 的画面下沉正好是真实的 ${DEFLECTION_EXAGGERATION} 倍`,
-      Math.abs(ratio - DEFLECTION_EXAGGERATION) < 1e-6,
-      `ratio=${ratio.toFixed(2)}`
+      `${id} 摆幅等于真实 × 标签上的倍数`,
+      Math.abs(full.sag - realUnits * full.factor) < 1e-9,
+      `sag=${full.sag.toFixed(4)} real=${realUnits.toFixed(6)} ×${full.factor}`
     );
     checkTrue(
-      `${id} 满荷载下沉量级合适（0.03–0.3 单位）`,
-      sag >= 0.03 && sag <= 0.3,
-      `sag=${sag.toFixed(3)} 单位（约 ${(sag * 100).toFixed(0)} m）`
+      `${id} 摆幅接近半跨的 ${DIAGRAM_RATIO} 倍`,
+      full.sag >= half * DIAGRAM_RATIO * 0.8 && full.sag <= half * DIAGRAM_RATIO * 1.2,
+      `sag=${full.sag.toFixed(3)} target=${(half * DIAGRAM_RATIO).toFixed(3)}`
     );
-    checkTrue(`${id} 半载正好是一半`, Math.abs(sagUnits(base, 0.5) - sag / 2) < 1e-9);
-    checkTrue(`${id} 无荷载不下沉`, sagUnits(base, 0) === 0);
+    checkTrue(
+      `${id} 曲线底端还在水面以上`,
+      deckTop + 0.3 - full.sag > 0,
+      `bottom=${(deckTop + 0.3 - full.sag).toFixed(3)}`
+    );
+    checkTrue(
+      `${id} 摆幅占屏高足够明显（≥4%）`,
+      full.sag / (2 * 6.5 * Math.tan(Math.PI / 8)) >= 0.04,
+      `${((full.sag / (2 * 6.5 * Math.tan(Math.PI / 8))) * 100).toFixed(0)}%`
+    );
+
+    // 荷载线性、倍数不变
+    const halfLoad = diagramFor(base, 0.5, half);
+    checkTrue(`${id} 半载摆幅是一半`, Math.abs(halfLoad.sag - full.sag / 2) < full.sag * 0.12, `${halfLoad.sag.toFixed(3)} vs ${(full.sag / 2).toFixed(3)}`);
+    checkTrue(`${id} 倍数不随荷载变`, halfLoad.factor === full.factor, `${halfLoad.factor} vs ${full.factor}`);
+    checkTrue(`${id} 零载不画`, diagramFor(base, 0, half).sag === 0);
+    checkTrue(`${id} 标签写明倍数`, labelFor(full.factor).includes(`×${full.factor}`));
   }
-
-  // 零荷载不画东西（避免拖回 0 时留一条直线）
-  checkTrue("荷载为 0 时下沉为 0", sagUnits(8, 0) === 0 && deflectionCm(8, 0) === 0);
 }
 
 /* ---------------- 合并几何体必须有法线 ---------------- */
