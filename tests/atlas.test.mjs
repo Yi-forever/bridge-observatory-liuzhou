@@ -1928,6 +1928,40 @@ for (const bridge of GEO.bridges) {
   );
 }
 
+/* ---------------- 首屏必须是三维 ---------------- */
+
+/**
+ * 用户反馈"打开就到二维页面"。
+ *
+ * 原因：入口拿"分离 canvas 的 WebGL 预检"当开关——
+ *   let browseOnly = isFileProtocol || !detectWebGL();
+ * 分离的 canvas 上 getContext 在个别环境会假阴性（真挂到页面上的 canvas 却没问题），
+ * 于是这类环境一进页面就被判成"不支持三维"，直接落到二维版。
+ *
+ * 现在只有 file:// 才在入口拦下；WebGL 预检只用来显示状态，
+ * 真正的判断交给场景初始化——失败才回退，并提示原因。
+ */
+{
+  const main = await (await import("node:fs/promises")).readFile(
+    new URL("../app3d/main.mjs", import.meta.url),
+    "utf8"
+  );
+
+  checkTrue("首屏只被 file:// 拦住", /let browseOnly = isFileProtocol;/.test(main));
+  checkTrue(
+    "不再用 WebGL 预检决定首屏",
+    !/browseOnly = isFileProtocol \|\| !webglAvailable/.test(main),
+    "预检假阴性会让这类环境永远进不了三维"
+  );
+  checkTrue("预检仍在（用于状态显示）", /const webglAvailable = detectWebGL\(\);/.test(main));
+  checkTrue(
+    "场景初始化真失败才回退",
+    /场景初始化失败/.test(main) && /browseOnly = true;/.test(main) && /showBootNotice\(/.test(main)
+  );
+  checkTrue("失败提示带硬件加速建议", /硬件加速/.test(main));
+  checkTrue("file:// 打开时解释原因", /explainFileProtocol/.test(main) && /file:\/\//.test(main));
+}
+
 /* ---------------- 两个启动程序：本地版 / 局域网版 ---------------- */
 
 /**
