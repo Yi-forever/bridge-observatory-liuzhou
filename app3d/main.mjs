@@ -431,11 +431,6 @@ function applyExperiment(state) {
     // 收起态：实验进行到哪一步、荷载多少、下沉几厘米，一眼能看到
     collapsed: !state.exp,
     readout: experimentReadout(state, flow),
-    onToggleCollapsed: () => {
-      const now = router ? router.current : null;
-      if (!now) return;
-      window.location.hash = toHash({ ...now, exp: !now.exp });
-    }
   });
   if (state.exp) applyExperimentVisuals(state);
   bindSheet(els.labPanel);
@@ -617,6 +612,12 @@ function boot() {
         const state = router ? router.current : null;
         if (!state) return;
         window.location.hash = toHash({ ...state, colors: !state.colors, exp: true });
+      },
+      onToggleCollapsed: () => {
+        // 收起/展开实验词条：只翻转 exp，其余实验状态保持不变
+        const state = router ? router.current : null;
+        if (!state || state.view !== "bridge") return;
+        window.location.hash = toHash({ ...state, exp: !state.exp });
       },
       onOpenBridge: () => {
         const state = router ? router.current : null;

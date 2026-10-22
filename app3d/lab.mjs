@@ -28,12 +28,6 @@ const STEP_HINT = {
   support: "桥台承接引道与主桥的过渡"
 };
 
-const COMPARE_ROWS = [
-  { key: "force", label: "受力特点" },
-  { key: "members", label: "主要构件" },
-  { key: "scene", label: "适用场景" },
-  { key: "question", label: "思考题" }
-];
 
 export function createLab(host, options = {}) {
   if (!host) throw new Error("实验室面板缺少宿主节点");
@@ -46,7 +40,6 @@ export function createLab(host, options = {}) {
     onSetLoad,
     onToggleColors,
     onToggleCollapsed,
-    onFocusBridge,
     onOpenBridge,
     onOpen2d,
     legend = {},

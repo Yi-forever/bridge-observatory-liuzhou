@@ -1415,6 +1415,66 @@ for (const bridge of GEO.bridges) {
   delete globalThis.window;
 }
 
+/* ---------------- 面板回调接线完整性 ---------------- */
+
+/**
+ * 抓"回调漏接"这一类 bug：lab.mjs / panel.mjs 会用到的 onXxx 回调，
+ * main.mjs 创建面板时必须都传进去。曾经漏了 onToggleCollapsed，
+ * 结果是实验词条的"展开/收起"按钮全是空操作——点了没反应、也不报错。
+ *
+ * 注意断言要 scope 到 createLab(...) / createPanel(...) 的调用块里：
+ * 同一个名字可能作为"状态字段"出现在别处（比如 lab.show() 的参数），
+ * 只要全文匹配就会假通过——这一点是踩过的坑。
+ */
+{
+  const read = (relative) =>
+    fs.readFileSync(new URL(relative, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+
+  /** 取出 `name(...)` 括号内的整段源码（简单括号计数）。 */
+  const callBlock = (source, name) => {
+    const start = source.indexOf(`${name}(`);
+    if (start < 0) return "";
+    const open = source.indexOf("(", start);
+    let depth = 0;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "(") depth += 1;
+      else if (source[i] === ")") {
+        depth -= 1;
+        if (depth === 0) return source.slice(open, i + 1);
+      }
+    }
+    return "";
+  };
+
+  const main = read("../app3d/main.mjs");
+  const labOptions = callBlock(main, "createLab");
+  const panelOptions = callBlock(main, "createPanel");
+
+  checkTrue("main 里有 createLab 调用", labOptions.length > 100, `len=${labOptions.length}`);
+  checkTrue("main 里有 createPanel 调用", panelOptions.length > 50, `len=${panelOptions.length}`);
+
+  const declaredCallbacks = (file) => {
+    const source = read(file);
+    const match = source.match(/const \{([\s\S]*?)\} = options;/);
+    if (!match) return [];
+    return [...match[1].matchAll(/(on[A-Z][A-Za-z]+),/g)].map((entry) => entry[1]);
+  };
+
+  const check = (name, block, label) => {
+    const pattern = new RegExp(`(^|\\s)${name}:\\s*`);
+    checkTrue(`${label} 传入了 ${name}`, pattern.test(block), "少了这个回调，对应按钮就是空操作");
+  };
+
+  const labCallbacks = declaredCallbacks("../app3d/lab.mjs");
+  const panelCallbacks = declaredCallbacks("../app3d/panel.mjs");
+
+  checkTrue("实验词条声明了回调", labCallbacks.length >= 6, labCallbacks.join(","));
+  checkTrue("资料词条声明了回调", panelCallbacks.length >= 2, panelCallbacks.join(","));
+
+  for (const name of labCallbacks) check(name, labOptions, "createLab");
+  for (const name of panelCallbacks) check(name, panelOptions, "createPanel");
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
