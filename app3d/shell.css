@@ -1579,3 +1579,90 @@ body.app3d-active {
   letter-spacing: 0.02em;
   text-align: center;
 }
+
+/* ------------------------------------------------------------------ *
+ * 交付形态：投屏排版（?present=1）与自助体验（?kiosk=1）
+ * ------------------------------------------------------------------ */
+
+/* 投屏：字号与按钮放大、对比度提高；不改变信息结构 */
+.a3d-present .app3d-hud {
+  max-width: min(720px, 88vw);
+}
+
+.a3d-present .app3d-title {
+  font-size: clamp(30px, 3.2vw, 46px);
+}
+
+.a3d-present .app3d-sub {
+  font-size: clamp(15px, 1.15vw, 19px);
+  line-height: 1.7;
+}
+
+.a3d-present .app3d-kicker,
+.a3d-present .app3d-status {
+  font-size: 13px;
+}
+
+.a3d-present .app3d-bridges li button,
+.a3d-present .app3d-ghost,
+.a3d-present .a3d-mode,
+.a3d-present .a3d-lab-chip,
+.a3d-present .a3d-lab-step,
+.a3d-present .a3d-lab-tool,
+.a3d-present .a3d-panel-cta {
+  font-size: 15px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  min-height: 44px;
+}
+
+.a3d-present .a3d-label {
+  font-size: 15px;
+}
+
+.a3d-present .a3d-panel,
+.a3d-present .a3d-lab {
+  width: min(440px, calc(100vw - 56px));
+}
+
+/* 投屏时把说话最多的资料词条正文也放大 */
+.a3d-present .a3d-panel-desc,
+.a3d-present .a3d-panel-note,
+.a3d-present .a3d-part small,
+.a3d-present .a3d-quiz-option,
+.a3d-present .a3d-quiz-explanation {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+/* 自助：把"操作型"的入口收起来，留标题 + 画面 + 署名 */
+.a3d-kiosk .app3d-nav {
+  display: none;
+}
+
+.a3d-kiosk .app3d-bridges {
+  display: none;
+}
+
+.a3d-kiosk .a3d-panel-close,
+.a3d-kiosk .app3d-credit a {
+  pointer-events: auto;
+}
+
+/* 自助在观众操作期间给一个明确的"已接管"提示条 */
+.a3d-kiosk-paused::after {
+  content: "已接管 · 停止操作 45 秒后自动继续巡览";
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 207, 106, 0.5);
+  background: rgba(9, 32, 41, 0.9);
+  color: #ffe1a6;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}

@@ -20,6 +20,15 @@ import { diagramFor } from "./deflection.mjs";
 import { FORCE_LEGEND } from "./force-map.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
+import {
+  BRIDGE_HOTKEYS,
+  KIOSK_DWELL_MS,
+  KIOSK_IDLE_RESUME_MS,
+  KIOSK_STOPS,
+  nextStop,
+  presentKeyToHash,
+  readFlags
+} from "./show-mode.mjs";
 import { createRouter, toHash } from "./state.mjs";
 
 const els = {
@@ -73,6 +82,14 @@ let panel = null;
 let lab = null;
 /** 正在等待场景就绪的构件高亮（先跳视图、再高亮）。 */
 let pendingPart = null;
+
+/** 投屏 / 自助两种交付形态（由查询串决定，如 ?present=1）。 */
+const showFlags = readFlags(window.location.search);
+/** 自助巡览：当前站序号与定时器。 */
+let kioskIndex = -1;
+let kioskTimer = null;
+let kioskResumeTimer = null;
+let kioskSuspended = false;
 
 /** 自动播放力流的定时器。 */
 let labTimer = null;
@@ -168,6 +185,11 @@ function closeGuide() {
 function guardGuideIn3d() {
   const dialog = els.guide;
   if (!dialog) return;
+  // 自助/投屏形态下不要新手引导挡住画面
+  if (showFlags.kiosk || showFlags.present) {
+    closeGuide();
+    return;
+  }
 
   const enforce = () => {
     if (renderedView && renderedView !== "browse" && dialog.open) {
@@ -598,6 +620,58 @@ function onChange(state, meta) {
   else renderApp3d(state);
 }
 
+/* ---------------- 投屏排版与自助体验 ---------------- */
+
+/** 投屏模式：键盘快速切桥（←/→ 逐桥、数字 1–5 直跳、Esc 回总览）。 */
+function bindPresentKeys() {
+  window.addEventListener("keydown", (event) => {
+    const tag = event.target && event.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || event.target.isContentEditable) return;
+
+    const state = router ? router.current : null;
+    const order = BRIDGES.map((bridge) => bridge.id);
+    const target = presentKeyToHash(event.key, state ? state.bridgeId : null, order);
+    if (!target) return;
+    event.preventDefault();
+    window.location.hash = target;
+  });
+}
+
+/** 自助巡览：定时推进；观众一操作就暂停，长时间空闲后复位继续。 */
+function startKiosk() {
+  const advance = () => {
+    kioskIndex = (kioskIndex + 1) % KIOSK_STOPS.length;
+    window.location.hash = KIOSK_STOPS[kioskIndex];
+  };
+
+  const schedule = () => {
+    if (kioskTimer !== null) window.clearInterval(kioskTimer);
+    kioskTimer = window.setInterval(() => {
+      if (!kioskSuspended) advance();
+    }, KIOSK_DWELL_MS);
+  };
+
+  const suspend = () => {
+    kioskSuspended = true;
+    document.body.classList.add("a3d-kiosk-paused");
+    if (kioskResumeTimer !== null) window.clearTimeout(kioskResumeTimer);
+    kioskResumeTimer = window.setTimeout(() => {
+      // 长时间无操作：复位到总览，然后继续巡览
+      kioskSuspended = false;
+      kioskIndex = -1;
+      document.body.classList.remove("a3d-kiosk-paused");
+      window.location.hash = "#atlas";
+    }, KIOSK_IDLE_RESUME_MS);
+  };
+
+  for (const type of ["pointerdown", "wheel", "keydown", "touchstart"]) {
+    window.addEventListener(type, suspend, { passive: true });
+  }
+
+  advance();
+  schedule();
+}
+
 function boot() {
   if (!els.app3d || !els.legacyRoot || !els.canvas) {
     console.warn("[app3d] 外壳节点缺失，保持现有 2D 页面不变。");
@@ -606,6 +680,14 @@ function boot() {
 
   buildBridgeList();
   guardGuideIn3d();
+
+  // 交付形态：只加 class，不改路由语义
+  if (showFlags.present) document.body.classList.add("a3d-present");
+  if (showFlags.kiosk) {
+    document.body.classList.add("a3d-kiosk");
+    startKiosk();
+  }
+  if (showFlags.present) bindPresentKeys();
 
   if (els.labPanel) {
     lab = createLab(els.labPanel, {
@@ -751,6 +833,9 @@ function boot() {
 
   // 便于人工自检与后续里程碑调试。
   window.bridgeObservatory = {
+    get showMode() {
+      return { ...showFlags, kioskIndex, kioskSuspended };
+    },
     get state() {
       return router ? router.current : null;
     },

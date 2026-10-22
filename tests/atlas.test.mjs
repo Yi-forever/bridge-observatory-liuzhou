@@ -1804,6 +1804,64 @@ for (const bridge of GEO.bridges) {
   }
 }
 
+/* ---------------- 交付形态：投屏排版与自助体验 ---------------- */
+
+/**
+ * ?present=1 / ?kiosk=1 由 show-mode.mjs 解析。
+ * 这里守住容易错的地方：
+ *   - 参数**不存在**不能当成"开了"（早先 truthy("") 返回 true，普通打开也会进投屏+自助）；
+ *   - 投屏的键盘切桥要能在首尾夹住而不越界；
+ *   - 自助巡览的站点必须覆盖总览 + 五座桥。
+ */
+{
+  const {
+    readFlags,
+    KIOSK_STOPS,
+    KIOSK_DWELL_MS,
+    KIOSK_IDLE_RESUME_MS,
+    nextStop,
+    presentKeyToHash
+  } = await import("../app3d/show-mode.mjs");
+
+  // 参数解析
+  checkTrue("无参数时两种形态都关", !readFlags("").present && !readFlags("").kiosk);
+  checkTrue("?present=1 只开投屏", readFlags("?present=1").present && !readFlags("?present=1").kiosk);
+  checkTrue("?kiosk=1 只开自助", readFlags("?kiosk=1").kiosk && !readFlags("?kiosk=1").present);
+  checkTrue("两个参数可以同时开", readFlags("?present=1&kiosk=1").present && readFlags("?present=1&kiosk=1").kiosk);
+  checkTrue("=0 表示关闭", !readFlags("?present=0").present);
+  checkTrue("未知参数被忽略", !readFlags("?foo=1").present && !readFlags("?foo=1").kiosk);
+
+  // 自助巡览
+  checkTrue("巡览站点覆盖总览 + 五座桥", KIOSK_STOPS.length === BRIDGES.length + 1, `${KIOSK_STOPS.length}`);
+  checkTrue("巡览从总览开始", KIOSK_STOPS[0] === "#atlas");
+  for (const bridge of BRIDGES) {
+    checkTrue(`巡览包含 ${bridge.id}`, KIOSK_STOPS.includes(`#bridge/${bridge.id}`));
+  }
+  checkTrue("巡览会循环回第一站", nextStop(KIOSK_STOPS.length - 1) === KIOSK_STOPS[0]);
+  checkTrue("停留时间合理（3–30 秒）", KIOSK_DWELL_MS >= 3000 && KIOSK_DWELL_MS <= 30000, `${KIOSK_DWELL_MS}`);
+  checkTrue("空闲恢复比停留长", KIOSK_IDLE_RESUME_MS > KIOSK_DWELL_MS, `${KIOSK_IDLE_RESUME_MS} vs ${KIOSK_DWELL_MS}`);
+
+  // 投屏键盘切桥
+  const order = BRIDGES.map((bridge) => bridge.id);
+  const first = order[0];
+  const last = order[order.length - 1];
+
+  checkTrue("数字 1 跳到第一座桥", presentKeyToHash("1", null, order) === `#bridge/${first}`);
+  checkTrue(
+    "数字 5 跳到第五座桥",
+    presentKeyToHash("5", null, order) === `#bridge/${order[4]}`,
+    presentKeyToHash("5", null, order)
+  );
+  checkTrue("→ 在中间推进一步", presentKeyToHash("ArrowRight", order[1], order) === `#bridge/${order[2]}`);
+  checkTrue("← 在中间后退一步", presentKeyToHash("ArrowLeft", order[1], order) === `#bridge/${first}`);
+  checkTrue("→ 在最后一座桥夹住", presentKeyToHash("ArrowRight", last, order) === `#bridge/${last}`);
+  checkTrue("← 在第一座桥夹住", presentKeyToHash("ArrowLeft", first, order) === `#bridge/${first}`);
+  checkTrue("从总览按 → 进第一座桥", presentKeyToHash("ArrowRight", null, order) === `#bridge/${first}`);
+  checkTrue("从总览按 ← 进最后一座桥", presentKeyToHash("ArrowLeft", null, order) === `#bridge/${last}`);
+  checkTrue("Esc / Home 回总览", presentKeyToHash("Escape", order[2], order) === "#atlas" && presentKeyToHash("Home", order[2], order) === "#atlas");
+  checkTrue("无关按键不处理", presentKeyToHash("z", order[0], order) === null);
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
