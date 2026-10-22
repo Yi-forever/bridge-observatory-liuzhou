@@ -57,6 +57,7 @@ export function createLab(host, options = {}) {
     loadText: "",
     forceColors: false,
     showLoad: false,
+    exaggerationLabel: "",
     collapsed: false,
     readout: ""
   };
@@ -169,7 +170,13 @@ export function createLab(host, options = {}) {
 
     const loadNote = document.createElement("p");
     loadNote.className = "a3d-lab-note";
-    loadSection.append(loadHead, loadInput, loadNote);
+
+    // 放大倍数必须放在显眼处、并且一直可见（不是只在拖动时冒出来）
+    const badge = document.createElement("p");
+    badge.className = "a3d-lab-badge";
+    badge.textContent = state.exaggerationLabel || "图形放大 · 教学示意";
+
+    loadSection.append(loadHead, loadInput, badge, loadNote);
 
     /* 工具 + 图例 */
     const tools = document.createElement("div");
@@ -225,6 +232,7 @@ export function createLab(host, options = {}) {
       loadInput,
       loadValue,
       loadNote,
+      badge,
       loadSection
     };
   }
@@ -340,6 +348,7 @@ export function createLab(host, options = {}) {
     els.loadInput.value = String(Math.round((state.load || 0) * 100));
     els.loadValue.textContent = `${Math.round((state.load || 0) * 100)}%`;
     els.loadNote.textContent = state.loadText || "";
+    if (els.badge) els.badge.textContent = state.exaggerationLabel || "图形放大 · 教学示意";
 
   }
 

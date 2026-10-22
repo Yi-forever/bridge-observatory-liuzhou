@@ -16,6 +16,7 @@ import {
   SOURCES,
   SOURCE_LIBRARY
 } from "./data.mjs";
+import { EXAGGERATION_LABEL, DEFLECTION_EXAGGERATION } from "./deflection.mjs";
 import { FORCE_LEGEND } from "./force-map.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
@@ -450,6 +451,7 @@ function applyExperiment(state) {
     loadText: labLoadText,
     forceColors: current.colors,
     showLoad: Boolean(scene && scene.setLabLoad),
+    exaggerationLabel: EXAGGERATION_LABEL,
     // 收起态：实验进行到哪一步、荷载多少、下沉几厘米，一眼能看到
     collapsed: !state.exp,
     readout: experimentReadout(state, flow),
@@ -506,8 +508,8 @@ function applyExperimentVisuals(state) {
   labLoadText = !info
     ? ""
     : info.load <= 0.001
-      ? "拖到 0 以上看荷载怎么传下去。挠度曲线为教学夸张（\u00d750），不是精确计算。"
-      : `跨中下沉约 ${info.realCm.toFixed(1)} cm（图形夸张 \u00d750）。`;
+      ? `拖到 0 以上看荷载怎么传下去。画面里的下沉是放大了 ${DEFLECTION_EXAGGERATION} 倍的示意，不是精确计算。`
+      : `跨中下沉约 ${info.realCm.toFixed(1)} cm——画面按 ×${DEFLECTION_EXAGGERATION} 放大显示。`;
 
   if (lab && lab.isOpen) lab.show({ load: current.load, loadText: labLoadText });
 }

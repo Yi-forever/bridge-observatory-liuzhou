@@ -1565,3 +1565,17 @@ body.app3d-active {
     display: none;
   }
 }
+
+/* 挠度的"放大倍数"徽标：必须显眼、常驻，不能只在拖动时出现 */
+.a3d-lab-badge {
+  margin: 2px 0 0;
+  padding: 5px 9px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 207, 106, 0.55);
+  background: rgba(255, 207, 106, 0.14);
+  color: #ffe1a6;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}

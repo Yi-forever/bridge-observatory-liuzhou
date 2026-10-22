@@ -16,6 +16,7 @@
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "./atlas.mjs";
 import { BRIDGE_BY_ID } from "./data.mjs";
+import { DEFLECTION_EXAGGERATION, deflectionCm, sagUnits } from "./deflection.mjs";
 import { forceEntries } from "./force-map.mjs";
 import { createLabels } from "./labels.mjs";
 import { getTheme } from "./theme.mjs";
@@ -262,11 +263,56 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
    * 桥梁构件是按材质合并后的静态网格，弯不了。所以这里画一条下沉的包络线
    * + 一个数字读数，并在 UI 里明确标注"图形夸张"。
    */
-  const DEFLECTION_EXAGGERATION = 50; // 真实 cm → 画面尺寸的放大倍数
   const deflectionMaterial = new THREE.LineBasicMaterial({ color: 0xffcf6a, transparent: true, opacity: 0.95 });
-  const baselineMaterial = new THREE.LineDashedMaterial({ color: 0x9fd8e0, dashSize: 0.06, gapSize: 0.05, transparent: true, opacity: 0.5 });
+  const baselineMaterial = new THREE.LineDashedMaterial({ color: 0x9fd8e0, dashSize: 0.06, gapSize: 0.05, transparent: true, opacity: 0.45 });
+  // 下沉区域用半透明面填起来：只画一条线在远景里太细，几乎看不见
+  const bandMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffb020,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
 
-  const labOverlay = { bridgeId: null, parent: null, marker: null, line: null, baseline: null, load: 0 };
+  const labOverlay = {
+    bridgeId: null,
+    parent: null,
+    marker: null,
+    line: null,
+    baseline: null,
+    band: null,
+    label: null,
+    load: 0
+  };
+
+  /** 把一句话画成面向相机的贴图（用来在模型旁边明说"放大了多少倍"）。 */
+  function textSprite(text, { width = 512, height = 128, fontSize = 44, color = "#12100c" } = {}) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = "rgba(255, 207, 106, 0.94)";
+    const radius = 22;
+    context.beginPath();
+    context.moveTo(radius, 0);
+    context.arcTo(width, 0, width, height, radius);
+    context.arcTo(width, height, 0, height, radius);
+    context.arcTo(0, height, 0, 0, radius);
+    context.arcTo(0, 0, width, 0, radius);
+    context.closePath();
+    context.fill();
+    context.fillStyle = color;
+    context.font = `600 ${fontSize}px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(text, width / 2, height / 2 + 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+    return sprite;
+  }
 
   /** 取某座桥在自身坐标系里的尺寸（拆解动画会改 position，要算进去）。 */
   function bridgeMetrics(bridgeId) {
@@ -300,11 +346,22 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
       line.removeFromParent?.();
       line.geometry?.dispose();
     }
+    if (labOverlay.band) {
+      labOverlay.band.removeFromParent?.();
+      labOverlay.band.geometry?.dispose();
+    }
+    if (labOverlay.label) {
+      labOverlay.label.removeFromParent?.();
+      labOverlay.label.material?.map?.dispose();
+      labOverlay.label.material?.dispose();
+    }
     labOverlay.bridgeId = null;
     labOverlay.parent = null;
     labOverlay.marker = null;
     labOverlay.line = null;
     labOverlay.baseline = null;
+    labOverlay.band = null;
+    labOverlay.label = null;
     labOverlay.load = 0;
   }
 
@@ -349,23 +406,42 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     const baseline = new THREE.Line(new THREE.BufferGeometry(), baselineMaterial);
     baseline.userData.noPick = true;
     baseline.frustumCulled = false;
-    metrics.model.add(line, baseline);
+
+    const band = new THREE.Mesh(new THREE.BufferGeometry(), bandMaterial);
+    band.userData.noPick = true;
+    band.frustumCulled = false;
+    band.renderOrder = 1;
+
+    // 模型旁边直接写清楚"这是夸张效果"，别让人把示意当实测
+    const label = textSprite(`挠度放大 ×${DEFLECTION_EXAGGERATION}`);
+    label.userData.noPick = true;
+    // 用世界单位的固定尺寸（约 70 m 宽），远近都读得出来；不随桥长缩放，
+    // 否则柳江这种短桥上会被拉成一块巨型招牌。
+    label.scale.set(0.7, 0.175, 1);
+    // 放在跨中偏左：跨中留给荷载箭头，别互相压住
+    label.position.set(-metrics.halfLength * 0.52, metrics.deckTop + 0.1, 0);
+
+    metrics.model.add(line, baseline, band, label);
 
     labOverlay.bridgeId = bridgeId;
     labOverlay.parent = metrics.model;
     labOverlay.marker = marker;
     labOverlay.line = line;
     labOverlay.baseline = baseline;
+    labOverlay.band = band;
+    labOverlay.label = label;
     return { metrics, ...labOverlay };
   }
 
   /** 重画挠度曲线（sag 是画面上的下沉量，单位：世界单位）。 */
   function paintDeflection(state, sag) {
-    const { metrics, line, baseline } = state;
+    const { metrics, line, baseline, band } = state;
     const steps = 48;
     const deckY = metrics.deckTop + 0.012;
     const curve = new Float32Array((steps + 1) * 3);
     const flat = new Float32Array((steps + 1) * 3);
+    // 色带：上沿是原位置、下沿是下沉后的曲线，两两组成三角
+    const bandPositions = new Float32Array(steps * 2 * 3 * 3);
 
     for (let i = 0; i <= steps; i += 1) {
       const u = i / steps;
@@ -385,6 +461,34 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     baseline.geometry.setAttribute("position", new THREE.BufferAttribute(flat, 3));
     baseline.geometry.computeBoundingSphere();
     baseline.computeLineDistances();
+
+    let cursor = 0;
+    const push = (x, y) => {
+      bandPositions[cursor] = x;
+      bandPositions[cursor + 1] = y;
+      bandPositions[cursor + 2] = 0;
+      cursor += 3;
+    };
+    for (let i = 0; i < steps; i += 1) {
+      const u0 = i / steps;
+      const u1 = (i + 1) / steps;
+      const x0 = -metrics.halfLength + u0 * metrics.halfLength * 2;
+      const x1 = -metrics.halfLength + u1 * metrics.halfLength * 2;
+      const y0 = deckY - sag * Math.sin(Math.PI * u0);
+      const y1 = deckY - sag * Math.sin(Math.PI * u1);
+      // 两个三角：上沿(原位置) → 下沿(下沉)
+      push(x0, deckY);
+      push(x1, deckY);
+      push(x1, y1);
+      push(x0, deckY);
+      push(x1, y1);
+      push(x0, y0);
+    }
+    band.geometry.dispose();
+    const bandGeometry = new THREE.BufferGeometry();
+    bandGeometry.setAttribute("position", new THREE.BufferAttribute(bandPositions, 3));
+    bandGeometry.computeBoundingSphere();
+    band.geometry = bandGeometry;
   }
 
   /**
@@ -399,18 +503,26 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     const bridge = BRIDGE_BY_ID.get(bridgeId);
     const deflectionBase = bridge ? Number(bridge.deflectionBase) || 4 : 4;
 
-    // 真实下沉（cm）：教学简化——满荷载时 deflectionBase 的一半，量级是"几厘米"
-    const realCm = (deflectionBase * 0.5) * clamped;
-    // 画面下沉：把 cm 换成 m 再放大，保证 1:100 的模型里看得见
-    const sag = (realCm / 100) * DEFLECTION_EXAGGERATION * 0.1;
+    // 换算集中在 app3d/deflection.mjs：真实下沉（厘米）与画面下沉（世界单位）
+    const realCm = deflectionCm(deflectionBase, clamped);
+    const sag = sagUnits(deflectionBase, clamped);
 
-    state.marker.visible = clamped > 0.001;
+    const visible = clamped > 0.001;
+    state.marker.visible = visible;
     state.marker.scale.setScalar(0.6 + clamped * 0.4);
-    paintDeflection(state, clamped > 0.001 ? sag : 0);
-    state.line.visible = clamped > 0.001;
+    paintDeflection(state, visible ? sag : 0);
+    state.line.visible = visible;
+    state.band.visible = visible;
+    state.label.visible = visible;
     labOverlay.load = clamped;
 
-    return { load: clamped, realCm, sag, halfLength: state.metrics.halfLength };
+    return {
+      load: clamped,
+      realCm,
+      sag,
+      exaggeration: DEFLECTION_EXAGGERATION,
+      halfLength: state.metrics.halfLength
+    };
   }
 
   /** 实验室的压/拉配色：一次把整座桥的构件按受力性质上色。 */
@@ -842,6 +954,8 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
     resetView,
     /** 手动定位力流步骤（实验室用）；返回命中的构件 id。 */
     setForceStep,
+    /** 挠度的图形放大倍数（界面上必须明示）。 */
+    deflectionExaggeration: DEFLECTION_EXAGGERATION,
     /** 实验室：设置荷载（0..1），返回读数。 */
     setLabLoad,
     /** 实验室：压/拉配色开关。 */

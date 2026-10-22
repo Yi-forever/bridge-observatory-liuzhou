@@ -1739,6 +1739,58 @@ for (const bridge of GEO.bridges) {
   for (const name of panelCallbacks) check(name, panelOptions, "createPanel");
 }
 
+/* ---------------- 挠度：放大倍数与量级 ---------------- */
+
+/**
+ * 真实跨中下沉是"几厘米"，在 1:100 的模型里只有 0.000x 单位——看不清。
+ * 所以画面上的下沉是放大的，倍数必须写成常数、并在界面上明示。
+ *
+ * 这里守住四件事：
+ *   1. 换算恒等式：画面下沉(单位) 与 真实下沉(cm) 的比值恒等于放大倍数；
+ *   2. 量级合适：满荷载时下沉约 0.06–0.2 单位（约桥长的 1%–5%，看得见但不夸张）；
+ *   3. 线性：半载是满载的一半；
+ *   4. 倍数写进了给用户看的文案里。
+ */
+{
+  const {
+    DEFLECTION_EXAGGERATION,
+    deflectionCm,
+    sagUnits,
+    EXAGGERATION_LABEL
+  } = await import("../app3d/deflection.mjs");
+
+  checkTrue("放大倍数是个明确的常数", DEFLECTION_EXAGGERATION >= 100, `×${DEFLECTION_EXAGGERATION}`);
+  checkTrue(
+    "文案里写明了放大倍数",
+    EXAGGERATION_LABEL.includes(`×${DEFLECTION_EXAGGERATION}`),
+    EXAGGERATION_LABEL
+  );
+
+  const bases = { liujiang: 8, wenhui: 3.2, wenchang: 6.5, baisha: 5.5, fenghuangling: 4.2 };
+
+  for (const [id, base] of Object.entries(bases)) {
+    const cm = deflectionCm(base, 1);
+    const sag = sagUnits(base, 1);
+    // 真实下沉 0.4 单位/cm？不：1 单位 = 100 m，所以 1 cm → 1e-4 单位
+    const ratio = sag / (cm / 10000);
+    checkTrue(
+      `${id} 的画面下沉正好是真实的 ${DEFLECTION_EXAGGERATION} 倍`,
+      Math.abs(ratio - DEFLECTION_EXAGGERATION) < 1e-6,
+      `ratio=${ratio.toFixed(2)}`
+    );
+    checkTrue(
+      `${id} 满荷载下沉量级合适（0.03–0.3 单位）`,
+      sag >= 0.03 && sag <= 0.3,
+      `sag=${sag.toFixed(3)} 单位（约 ${(sag * 100).toFixed(0)} m）`
+    );
+    checkTrue(`${id} 半载正好是一半`, Math.abs(sagUnits(base, 0.5) - sag / 2) < 1e-9);
+    checkTrue(`${id} 无荷载不下沉`, sagUnits(base, 0) === 0);
+  }
+
+  // 零荷载不画东西（避免拖回 0 时留一条直线）
+  checkTrue("荷载为 0 时下沉为 0", sagUnits(8, 0) === 0 && deflectionCm(8, 0) === 0);
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
