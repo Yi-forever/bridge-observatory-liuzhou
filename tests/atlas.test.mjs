@@ -1928,6 +1928,50 @@ for (const bridge of GEO.bridges) {
   );
 }
 
+/* ---------------- 启动脚本的可执行性 ---------------- */
+
+/**
+ * 踩过的坑：把 .bat 存成 UTF-8 并在里面写中文，cmd.exe 会按 OEM 代码页（GBK）读，
+ * 于是 if exist "桥见柳州.exe" 这条判断被读成乱码、静默跳过，脚本看起来"双击没反应"。
+ * 所以：启动脚本一律纯 ASCII，中文文件名靠通配符 * .exe 解析。
+ *
+ * 这里锁三件事：脚本存在、是纯 ASCII、且用通配符找启动器而不是拼中文字面量。
+ */
+{
+  const readFile = async (name) =>
+    (await import("node:fs/promises")).readFile(new URL(`../${name}`, import.meta.url), "utf8");
+
+  const scripts = ["start-mobile.bat", "start-lan.bat", "start.bat"];
+  for (const name of scripts) {
+    const source = await readFile(name).catch(() => null);
+    checkTrue(`${name} 存在`, Boolean(source));
+    if (!source) continue;
+    const nonAscii = [...source].filter((char) => char.charCodeAt(0) > 127);
+    checkTrue(
+      `${name} 是纯 ASCII（否则 cmd 会读成乱码）`,
+      nonAscii.length === 0,
+      `发现 ${nonAscii.length} 个非 ASCII 字符：${nonAscii.slice(0, 8).join("")}`
+    );
+  }
+
+  const mobile = await readFile("start-mobile.bat");
+  checkTrue("start-mobile.bat 会带 --lan 启动", /--lan/.test(mobile));
+  checkTrue(
+    "start-mobile.bat 用通配符找启动器（不拼中文文件名）",
+    /for %%f in \("%~dp0\*\.exe"\)/.test(mobile),
+    mobile.split("\n").find((line) => line.includes("for %%f")) || ""
+  );
+
+  const firewall = await readFile("允许手机访问.bat");
+  checkTrue(
+    "允许手机访问.bat 对任意网络配置文件放行",
+    /profile=any/.test(firewall) && /dir=in action=allow/.test(firewall)
+  );
+
+  const doctor = await readFile("tools/lan-doctor.mjs");
+  checkTrue("提供局域网自查工具", /== 2\. 防火墙/.test(doctor) || doctor.includes("防火墙"));
+}
+
 /* ---------------- 移动端启动：局域网地址筛选 ---------------- */
 
 /**
