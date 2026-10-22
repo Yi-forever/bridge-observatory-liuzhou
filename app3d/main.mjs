@@ -8,6 +8,7 @@
  */
 
 import { BRIDGES, BRIDGE_BY_ID } from "./data.mjs";
+import { createPanel } from "./panel.mjs";
 import { createRouter, toHash } from "./state.mjs";
 
 const els = {
@@ -20,6 +21,7 @@ const els = {
   sub: document.getElementById("sceneSub"),
   status: document.getElementById("sceneStatus"),
   bridgeList: document.getElementById("sceneBridgeList"),
+  panel: document.getElementById("scenePanel"),
   btnBrowse: document.getElementById("btnBrowse"),
   btnReset: document.getElementById("btnResetView"),
   guide: document.getElementById("guideDialog"),
@@ -54,6 +56,22 @@ let renderedView = null;
 let latestState = null;
 let returnButton = null;
 let router = null;
+let panel = null;
+/** 正在等待场景就绪的构件高亮（先跳视图、再高亮）。 */
+let pendingPart = null;
+
+/**
+ * 从 3D 资料卡跳到 2D 的"结构实验室"章节。
+ * 先切到列表视图（3D 外壳隐藏、legacy 页面显示），再滚到 #lab——
+ * 不能直接把 hash 设成 #lab：那会被 3D 路由当成"3D 实验室"接走。
+ */
+function openLegacyLab() {
+  window.location.hash = "#browse";
+  window.setTimeout(() => {
+    const section = document.getElementById("lab");
+    if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 160);
+}
 
 /** 浏览模式下只认这三种地址，其余（页内锚点、旧格式）交给 2D 页面。 */
 function isSceneRoute(hash) {
@@ -104,7 +122,7 @@ function describe(state) {
       return {
         kicker: `M2 / BRIDGE · ${bridge.order}`,
         title: bridge.name,
-        sub: `${bridge.year} 年 · ${bridge.type} · 已按真实坐标与桥轴定位，镜头已拉近。`
+        sub: `${bridge.year} 年 · ${bridge.type} · 点桥上的构件可以单独高亮，右侧资料卡会跟着定位。`
       };
     }
   }
@@ -125,7 +143,7 @@ function describe(state) {
   return {
     kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放，点击桥梁把镜头拉近看结构。"
+    sub: "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。"
   };
 }
 
@@ -186,6 +204,22 @@ function showBootNotice(title, bodyHtml) {
 
 function handlePick(pick) {
   if (!pick) return;
+
+  // 构件：先确保进到这座桥的视图，再高亮并让资料卡滚到那一行
+  if (pick.type === "part") {
+    const state = router ? router.current : null;
+    const alreadyHere = state && state.view === "bridge" && state.bridgeId === pick.id;
+    if (alreadyHere) {
+      focusPart(pick.id, pick.partId);
+    } else {
+      // 换了视图：视图渲染会重建资料卡并清高亮，
+      // 所以这里先记下来，等 applyPanel 渲染完再高亮。
+      pendingPart = { bridgeId: pick.id, partId: pick.partId };
+      window.location.hash = `#bridge/${pick.id}`;
+    }
+    return;
+  }
+
   if (pick.type === "bridge") {
     window.location.hash = `#bridge/${pick.id}`;
     return;
@@ -193,6 +227,13 @@ function handlePick(pick) {
   if (pick.type === "building" && (pick.id === "lab" || pick.id === "archive")) {
     window.location.hash = `#${pick.id}`;
   }
+}
+
+/** 高亮构件并把资料卡同步到那一行。 */
+function focusPart(bridgeId, partId) {
+  const hit = scene && scene.highlightPart ? scene.highlightPart(bridgeId, partId) : null;
+  if (panel && panel.isOpen) panel.focusPart(partId);
+  return hit;
 }
 
 function initScene() {
@@ -205,6 +246,7 @@ function initScene() {
       onPick: handlePick
     });
     scene = instance;
+    if (latestState) applyPanel(latestState);
     return instance;
   })();
   return sceneInitPromise;
@@ -224,6 +266,36 @@ async function ensureSceneReady(state) {
       `无法初始化 WebGL 场景（${String((error && error.message) || error)}）。已切换到列表视图，全部内容仍可访问。`
     );
     window.location.hash = "#browse";
+  }
+}
+
+/** 只有"单桥视图"才显示资料卡；其余视图收起并清掉构件高亮。 */
+function applyPanel(state) {
+  if (!panel) return;
+  if (!state || state.view !== "bridge") {
+    panel.hide();
+    if (scene && scene.clearPartHighlight) scene.clearPartHighlight();
+    return;
+  }
+  const bridge = BRIDGE_BY_ID.get(state.bridgeId);
+  if (!bridge) {
+    panel.hide();
+    return;
+  }
+  const modeled = scene && scene.getPartIds ? scene.getPartIds(state.bridgeId) : [];
+  panel.show(bridge, { modeled });
+
+  if (pendingPart && pendingPart.bridgeId === state.bridgeId) {
+    if (scene && scene.highlightPart) {
+      const waiting = pendingPart.partId;
+      pendingPart = null;
+      focusPart(state.bridgeId, waiting);
+    } else {
+      // 场景尚未就绪：卡片先定位，待办保留——initScene 就绪后会再走一次 applyPanel
+      panel.focusPart(pendingPart.partId);
+    }
+  } else if (scene && scene.clearPartHighlight) {
+    scene.clearPartHighlight();
   }
 }
 
@@ -263,6 +335,7 @@ function renderApp3d(state) {
 
   latestState = state;
   updateStatus(state);
+  applyPanel(state);
   ensureSceneReady(state);
 }
 
@@ -296,6 +369,16 @@ function boot() {
 
   buildBridgeList();
   guardGuideIn3d();
+
+  if (els.panel) {
+    panel = createPanel(els.panel, {
+      onPartSelect: (partId) => {
+        const state = router ? router.current : null;
+        if (state && state.view === "bridge") focusPart(state.bridgeId, partId);
+      },
+      onOpenLab: () => openLegacyLab()
+    });
+  }
 
   if (els.btnBrowse) {
     els.btnBrowse.addEventListener("click", () => {

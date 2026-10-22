@@ -356,9 +356,23 @@ function createPartBuilder() {
   const direction = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
 
+  // 构件身份：建模时用 beginPart("deck", "桥面") 打标，
+  // finish() 按 (构件, 材质) 分组出网格——这样拾取能精确到"拱肋/吊索/桥墩"，
+  // 而不是整座桥一个网格。
+  let currentPart = { id: "body", label: "整体" };
+
+  const beginPart = (id, label) => {
+    currentPart = { id, label: label || id };
+  };
+
   const push = (geometry, material) => {
     geometry.applyMatrix4(matrix);
-    parts.push({ geometry, material });
+    parts.push({
+      geometry,
+      material,
+      partId: currentPart.id,
+      partLabel: currentPart.label
+    });
   };
 
   /** 轴对齐（可带旋转）的盒子。 */
@@ -415,24 +429,46 @@ function createPartBuilder() {
 
   const finish = () => {
     const group = new THREE.Group();
-    const byMaterial = new Map();
+    const byKey = new Map();
     for (const part of parts) {
-      if (!byMaterial.has(part.material)) byMaterial.set(part.material, []);
-      byMaterial.get(part.material).push(part.geometry);
+      const key = `${part.partId}\u0000${part.material.uuid}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          partId: part.partId,
+          partLabel: part.partLabel,
+          material: part.material,
+          geometries: []
+        });
+      }
+      byKey.get(key).geometries.push(part.geometry);
     }
-    for (const [material, geometries] of byMaterial) {
-      const mesh = new THREE.Mesh(mergeGeometries(geometries), material);
+
+    const partsById = new Map();
+    for (const bucket of byKey.values()) {
+      const mesh = new THREE.Mesh(mergeGeometries(bucket.geometries), bucket.material);
       // 不投影也不接收阴影：与另外四座桥保持一致。
       // 拱肋半径只有 0.025，而阴影贴图纹理素约 0.04、normalBias 又是 0.06——
       // 薄构件落在这种精度下只会得到自阴影噪点，不如干脆不参与阴影。
       mesh.castShadow = false;
       mesh.receiveShadow = false;
+      mesh.userData.partId = bucket.partId;
       group.add(mesh);
+
+      if (!partsById.has(bucket.partId)) {
+        partsById.set(bucket.partId, {
+          id: bucket.partId,
+          label: bucket.partLabel,
+          meshes: []
+        });
+      }
+      partsById.get(bucket.partId).meshes.push(mesh);
     }
+
+    group.userData.parts = partsById;
     return group;
   };
 
-  return { box, rod, tube, cone, shape, finish, count: () => parts.length };
+  return { box, rod, tube, cone, shape, beginPart, finish, count: () => parts.length };
 }
 
 /**
@@ -543,10 +579,12 @@ function buildGirder(bridge, accent, concrete, deckMaterial) {
   const endX = startX + total;
 
   /* ---------------- 桥面 ---------------- */
+  builder.beginPart("deck", "桥面");
 
   builder.box(total, slabH, W, deckMaterial, 0, deckY, 0);
 
   /* ---------------- 悬臂 + 挂梁 ---------------- */
+  builder.beginPart("girder", "主梁");
 
   const armSegments = 6;
 
@@ -596,6 +634,7 @@ function buildGirder(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 桥墩与桥台 ---------------- */
+  builder.beginPart("pier", "桥墩");
 
   const rootBottom = girderTop - rootDepth;
   const supports = [];
@@ -608,6 +647,8 @@ function buildGirder(bridge, accent, concrete, deckMaterial) {
     supports.push({ x: pierX, bottom: PIER_BASE, top: rootBottom });
   }
 
+  builder.beginPart("foundation", "基础");
+
   // 桥台：顶在挂梁底面，脚落到水下
   for (const side of [-1, 1]) {
     const x = side * (total / 2 - 0.06);
@@ -619,6 +660,7 @@ function buildGirder(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 人行道与栏杆 ---------------- */
+  builder.beginPart("deck", "桥面");
 
   // 人行道必须**高出路缘**：上一版把它做成与桥面板同厚的窄条，
   // 顶面正好落在桥面标高上（y 完全相同），于是两侧各出现一条 z-fighting 条纹。
@@ -732,6 +774,7 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
   const builder = createPartBuilder();
 
   /* ---------------- 桥面 ---------------- */
+  builder.beginPart("deck", "桥面梁");
 
   builder.box(L, deckT, W, deckMaterial, 0, deckY, 0);
   // 两侧边梁外露，桥面才不是一块薄片
@@ -754,6 +797,7 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 桥墩与桥台 ---------------- */
+  builder.beginPart("abutment", "拱座");
 
   const shaftHeight = deckBottom - PIER_BASE;
   const pierXs = [...joints];
@@ -768,6 +812,7 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 五孔连拱 ---------------- */
+  builder.beginPart("arch", "拱肋");
 
   for (let i = 0; i < joints.length - 1; i += 1) {
     const isSide = i === 0 || i === joints.length - 2;
@@ -817,6 +862,8 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
         builder.tube(lower, ribRadius, steel, 6, 40, side * ribZ);
       }
 
+      builder.beginPart("hanger", "吊杆");
+
       // 拱穿过桥面的两个交点：吊杆只存在于拱高于桥面的那一段
       const crossing = (spanLength / 2) * Math.sqrt(Math.max(0.04, 1 - (deckTop - baseY) / rise));
       const zone = crossing * 0.92;
@@ -837,6 +884,8 @@ function buildWenhuiBridge(bridge, accent, concrete, deckMaterial) {
           );
         }
       }
+
+      builder.beginPart("arch", "拱肋");
 
       // 拱上横撑：把两片拱肋连起来（哑铃形的面孔）
       for (const t of [-0.66, 0, 0.66]) {
@@ -912,10 +961,12 @@ function buildContinuous(bridge, accent, concrete, deckMaterial) {
   const midDepth = 0.03; // 跨中梁高约 3 m
 
   /* ---------------- 桥面 ---------------- */
+  builder.beginPart("deck", "桥面");
 
   builder.box(total, slabH, W, deckMaterial, 0, deckY, 0);
 
   /* ---------------- 变截面箱梁 ---------------- */
+  builder.beginPart("box-girder", "连续箱梁");
 
   const segmentsPerSpan = 16;
 
@@ -951,18 +1002,26 @@ function buildContinuous(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 桥墩与桥台 ---------------- */
+  builder.beginPart("pier", "桥墩");
 
   const rootBottom = girderTop - rootDepth;
   const supports = [];
 
   for (const pierX of piers) {
-    const capTop = rootBottom;
+    // 盖梁压低一个支座厚度，好让支座成为看得见、点得到的构件
+    const bearingH = 0.012;
+    const capTop = rootBottom - bearingH;
     const capBottom = capTop - 0.032;
     const columnHeight = capBottom - PIER_BASE;
     for (const side of [-1, 1]) {
       builder.box(0.06, columnHeight, W * 0.1, concrete, pierX, PIER_BASE + columnHeight / 2, side * W * 0.24);
     }
     builder.box(0.09, 0.032, W * 0.62, concrete, pierX, capTop - 0.016, 0); // 盖梁
+    builder.beginPart("bearing", "支座");
+    for (const side of [-1, 1]) {
+      builder.box(0.05, bearingH, W * 0.22, concrete, pierX, capTop + bearingH / 2, side * W * 0.17);
+    }
+    builder.beginPart("pier", "桥墩");
     builder.box(0.26, 0.05, W * 0.8, concrete, pierX, PIER_BASE + 0.025, 0); // 承台
     supports.push({ x: pierX, bottom: PIER_BASE, top: capTop });
   }
@@ -977,6 +1036,7 @@ function buildContinuous(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 栏杆与栏杆灯 ---------------- */
+  builder.beginPart("deck", "桥面");
 
   const railHeight = 0.046;
   const posts = Math.max(12, Math.round(total / 0.3));
@@ -1040,6 +1100,7 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
   });
 
   /* ---------------- 主梁：钢箱 + 混凝土桥面板 ---------------- */
+  builder.beginPart("deck", "漂浮桥面");
 
   const slabH = deckT * 0.36;
   const girderH = deckT * 0.64;
@@ -1051,6 +1112,7 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 主塔：空间扭曲的闭环 ---------------- */
+  builder.beginPart("ring", "环形主塔");
 
   const halfSpan = 0.5;                  // 环的半宽，100 m
   const towerTop = 1.06;                 // 塔顶 106 m（水面起算）
@@ -1078,6 +1140,7 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
   builder.box(0.34, 0.05, 0.44, concrete, 0, PIER_BASE + 0.025, 0);
 
   /* ---------------- 斜拉索：单塔双索面，每侧 15 根 ---------------- */
+  builder.beginPart("cable", "斜拉索");
 
   const perSide = 15;
   const cableRadius = 0.0052;
@@ -1091,7 +1154,11 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
       for (const plane of [-1, 1]) {
         const from = new THREE.Vector3(anchor.x, anchor.y, anchor.z * 0.82);
         const to = new THREE.Vector3(deckX, deckTop + 0.004, plane * (W / 2 - W * 0.035));
+        builder.beginPart("cable", "斜拉索");
+
         builder.rod(from, to, cableRadius, stay, 4);
+        builder.beginPart("anchor", "锚固区");
+
         // 索在梁上的锚头
         builder.box(0.012, 0.016, 0.012, steel, deckX, deckTop - 0.004, plane * (W / 2 - W * 0.035));
       }
@@ -1099,6 +1166,7 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 栏杆 ---------------- */
+  builder.beginPart("deck", "漂浮桥面");
 
   const railHeight = 0.045;
   const posts = Math.max(8, Math.round(L / 0.4));
@@ -1115,6 +1183,7 @@ function buildCable(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 桥台 ---------------- */
+  builder.beginPart("support", "桥台与基础");
 
   // 端部支撑必须"顶不穿桥面、脚不着空地悬着"这两头都不成立：
   // 顶面收在梁底以下，柱脚一直落到 PIER_BASE（低于水面/地面）。
@@ -1174,6 +1243,7 @@ function buildPavilion(bridge, accent, concrete, deckMaterial) {
   });
 
   /* ---------------- 主梁：预制桥面板 + 双钢箱 ---------------- */
+  builder.beginPart("deck", "桥面梁");
 
   const slabH = deckT * 0.42;
   const girderH = deckT * 0.58;
@@ -1195,6 +1265,7 @@ function buildPavilion(bridge, accent, concrete, deckMaterial) {
   builder.box(L, 0.014, medianHalf * 2, concrete, 0, deckTop + 0.007, 0);
 
   /* ---------------- 下部结构：真实跨径 96+124+3×130+90 = 700 m ---------------- */
+  builder.beginPart("pier", "桥墩与基础");
 
   // 五座桥亭正好立在五个水中墩上——歇山亭在两端、六角亭次之、八角亭居中，
   // 所以跨径布置不能等分，要按真实的 96 / 124 / 130 / 130 / 130 / 90 来。
@@ -1232,6 +1303,7 @@ function buildPavilion(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 两侧长廊 ---------------- */
+  builder.beginPart("gallery", "连廊屋面");
 
   // 真实廊亭宽约 5.5 m、檐口 4.5 m、脊 6.8 m，压在人行道上、与五座桥亭并列通长。
   // 上一版做成 14 m 宽、15 m 高——比亭子的底层还高，远看像两道墙把桥夹住。
@@ -1269,6 +1341,7 @@ function buildPavilion(bridge, accent, concrete, deckMaterial) {
   }
 
   /* ---------------- 五座桥亭：横跨整座桥面 ---------------- */
+  builder.beginPart("pavilion", "风雨亭");
 
   // 【设计决定】按用户要求，亭子改成**横跨整个桥面**、支柱落在桥面两侧的方案。
   //
@@ -1538,6 +1611,22 @@ export function buildAtlas() {
     group.rotation.y = geoBridge.angle;
     group.userData.pick = { type: "bridge", id: meta.id };
 
+    // 构件拾取：每个构件网格自带 pick，点上去就能拿到"拱肋/吊索/桥墩"这一级。
+    // 没有构件标记的网格落到桥一级（拾取代理就是干这个的）。
+    const partMap = model.group.userData && model.group.userData.parts;
+    if (partMap) {
+      for (const part of partMap.values()) {
+        for (const mesh of part.meshes) {
+          mesh.userData.pick = {
+            type: "part",
+            id: meta.id,
+            partId: part.id,
+            label: part.label
+          };
+        }
+      }
+    }
+
     // 拾取代理：让 3 单位的桥在总览里也能被点中
     const proxy = new THREE.Mesh(
       new THREE.BoxGeometry(Math.max(geoBridge.length, 3) + 2, 3.2, Math.max(geoBridge.width, 1.2) + 2),
@@ -1573,6 +1662,7 @@ export function buildAtlas() {
       accent,
       marker,
       top: model.top,
+      parts: partMap || new Map(),
       labelAnchor: new THREE.Vector3(geoBridge.x, model.top + 0.5, geoBridge.z)
     });
 
@@ -1687,6 +1777,53 @@ export function buildAtlas() {
   let selection = { view: "atlas", bridgeId: null };
   let hoveredKey = null;
 
+  // 构件高亮：复用构件几何建一层半透明"幽灵"，只加材质不加顶点。
+  // 直接用材质改发光是不行的——同一材质被多个构件共用，改一个会亮一片。
+  const highlightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffe6b0,
+    emissive: new THREE.Color(0xffcf6a),
+    emissiveIntensity: 0.9,
+    roughness: 0.4,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  let highlighted = { bridgeId: null, partId: null, meshes: [] };
+
+  /** 清除当前构件高亮。 */
+  function clearPartHighlight() {
+    for (const mesh of highlighted.meshes) {
+      if (mesh.parent) mesh.parent.remove(mesh);
+    }
+    highlighted = { bridgeId: null, partId: null, meshes: [] };
+  }
+
+  /**
+   * 高亮某个构件。
+   * @returns {{id: string, label: string}|null} 命中的构件（找不到则为 null）
+   */
+  function highlightPart(bridgeId, partId) {
+    clearPartHighlight();
+    if (!bridgeId || !partId) return null;
+    const entry = bridges.get(bridgeId);
+    const part = entry && entry.parts ? entry.parts.get(partId) : null;
+    if (!part) return null;
+    const ghosts = [];
+    for (const source of part.meshes) {
+      const ghost = new THREE.Mesh(source.geometry, highlightMaterial);
+      ghost.userData.noPick = true;
+      ghost.castShadow = false;
+      ghost.receiveShadow = false;
+      ghost.renderOrder = 2;
+      source.parent.add(ghost);
+      ghosts.push(ghost);
+    }
+    highlighted = { bridgeId, partId, meshes: ghosts };
+    return { id: part.id, label: part.label };
+  }
+
   function emphasisFor(id) {
     const key = `bridge:${id}`;
     const selected = selection.view === "bridge" && selection.bridgeId === id;
@@ -1717,6 +1854,12 @@ export function buildAtlas() {
   }
 
   function setHover(key) {
+    // 构件悬停按桥级强调处理：key 形如 part:<bridgeId>:<partId>，
+    // 归一成 bridge:<bridgeId> 再比较，省一套额外的强调逻辑。
+    if (key && key.startsWith("part:")) {
+      const [, bridgeId] = key.split(":");
+      key = `bridge:${bridgeId}`;
+    }
     if (hoveredKey === key) return;
     hoveredKey = key;
     apply();
@@ -1757,6 +1900,8 @@ export function buildAtlas() {
     window: viewWindow,
     setSelection,
     setHover,
+    highlightPart,
+    clearPartHighlight,
     get hovered() {
       return hoveredKey;
     }

@@ -524,3 +524,295 @@ body.app3d-active {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * 桥梁资料卡（3D 单桥视图）
+ * 与 app3d/panel.mjs 成对维护：这里是它唯一的样式来源。
+ * ------------------------------------------------------------------ */
+
+.a3d-panel {
+  position: absolute;
+  z-index: 6;
+  top: 96px;
+  right: 28px;
+  width: min(380px, calc(100vw - 56px));
+  max-height: calc(100vh - 180px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(159, 216, 224, 0.22);
+  background: linear-gradient(180deg, rgba(9, 32, 41, 0.94), rgba(7, 24, 31, 0.96));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  color: #e8f2f3;
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  animation: a3d-panel-in 220ms ease-out;
+}
+
+.a3d-panel[hidden] {
+  display: none;
+}
+
+@keyframes a3d-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a3d-panel {
+    animation: none;
+  }
+}
+
+.a3d-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.a3d-panel-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.a3d-panel-order {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: rgba(159, 216, 224, 0.72);
+}
+
+.a3d-panel-title h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.a3d-panel-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  border: 1px solid rgba(159, 216, 224, 0.26);
+  background: rgba(159, 216, 224, 0.08);
+  color: #cfe6e9;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.a3d-panel-close:hover,
+.a3d-panel-close:focus-visible {
+  background: rgba(159, 216, 224, 0.2);
+  border-color: rgba(159, 216, 224, 0.5);
+}
+
+.a3d-panel-alias {
+  margin: -6px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(200, 226, 229, 0.62);
+}
+
+.a3d-panel-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(159, 216, 224, 0.06);
+  font-size: 12px;
+}
+
+.a3d-panel-meta dt {
+  color: rgba(180, 214, 219, 0.66);
+}
+
+.a3d-panel-meta dd {
+  margin: 0;
+  color: #e8f2f3;
+}
+
+.a3d-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+}
+
+.a3d-panel-tagline {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #ffd9a0;
+}
+
+.a3d-panel-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: rgba(224, 238, 239, 0.86);
+}
+
+.a3d-panel-parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.a3d-part {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(159, 216, 224, 0.12);
+  background: rgba(10, 34, 43, 0.5);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: default;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.a3d-part.is-modeled {
+  cursor: pointer;
+  border-color: rgba(159, 216, 224, 0.24);
+}
+
+.a3d-part.is-modeled:hover,
+.a3d-part.is-modeled:focus-visible {
+  background: rgba(159, 216, 224, 0.12);
+  border-color: rgba(159, 216, 224, 0.48);
+}
+
+.a3d-part.is-active {
+  background: rgba(255, 207, 106, 0.14);
+  border-color: rgba(255, 207, 106, 0.62);
+}
+
+.a3d-part i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: rgba(159, 216, 224, 0.34);
+}
+
+.a3d-part.is-modeled i {
+  background: #9fd8e0;
+}
+
+.a3d-part.is-active i {
+  background: #ffcf6a;
+  box-shadow: 0 0 0 3px rgba(255, 207, 106, 0.2);
+}
+
+.a3d-part span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.a3d-part strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f1f8f8;
+}
+
+.a3d-part small {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: rgba(206, 226, 229, 0.7);
+}
+
+.a3d-panel-note {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(255, 207, 106, 0.08);
+  border-left: 2px solid rgba(255, 207, 106, 0.55);
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(240, 232, 214, 0.9);
+}
+
+.a3d-panel-note strong {
+  color: #ffd9a0;
+  font-weight: 600;
+}
+
+.a3d-panel-current {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 207, 106, 0.4);
+  background: rgba(255, 207, 106, 0.06);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.a3d-panel-current strong {
+  color: #ffcf6a;
+  font-size: 12.5px;
+}
+
+.a3d-panel-foot {
+  display: flex;
+  gap: 8px;
+}
+
+.a3d-panel-cta {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 216, 224, 0.4);
+  background: linear-gradient(180deg, rgba(159, 216, 224, 0.22), rgba(159, 216, 224, 0.1));
+  color: #eaf6f7;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.a3d-panel-cta:hover,
+.a3d-panel-cta:focus-visible {
+  background: linear-gradient(180deg, rgba(159, 216, 224, 0.34), rgba(159, 216, 224, 0.16));
+  border-color: rgba(159, 216, 224, 0.68);
+}
+
+@media (max-width: 720px) {
+  .a3d-panel {
+    top: auto;
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 58vh;
+  }
+}

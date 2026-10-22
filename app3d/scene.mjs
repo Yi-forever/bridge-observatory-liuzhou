@@ -225,14 +225,25 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(atlas.pickables, true);
+
+    // 两趟：先找构件，再退回桥/建筑。
+    // 桥外面套着一层不可见的拾取代理盒，它永远比真实构件近——
+    // 如果只取最近的一个命中，永远点不到"拱肋"这一级。
+    let fallback = null;
     for (const hit of hits) {
+      if (hit.object.userData && hit.object.userData.noPick) continue; // 高亮幽灵不参与拾取
       let node = hit.object;
       while (node) {
-        if (node.userData && node.userData.pick) return node.userData.pick;
+        const pick = node.userData && node.userData.pick;
+        if (pick) {
+          if (pick.type === "part") return pick;
+          if (!fallback) fallback = pick;
+          break;
+        }
         node = node.parent;
       }
     }
-    return null;
+    return fallback;
   }
 
   /**
@@ -271,7 +282,11 @@ export async function createScene({ canvas, labelLayer, onPick }) {
       return;
     }
     const hit = pickAt(lastX, lastY);
-    const key = hit ? `${hit.type}:${hit.id}` : null;
+    const key = hit
+      ? hit.type === "part"
+        ? `part:${hit.id}:${hit.partId}`
+        : `${hit.type}:${hit.id}`
+      : null;
     atlas.setHover(key);
     canvas.style.cursor = key ? "pointer" : "grab";
   }
@@ -461,6 +476,15 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     resize,
     dispose,
     resetView,
+    /** 高亮某个构件；返回 { id, label } 或 null。 */
+    highlightPart: (bridgeId, partId) => atlas.highlightPart(bridgeId, partId),
+    clearPartHighlight: () => atlas.clearPartHighlight(),
+    /** 该桥建了哪些构件（资料卡据此决定哪几行可以高亮）。 */
+    getPartIds: (bridgeId) => {
+      const entry = atlas.bridges.get(bridgeId);
+      if (!entry || !entry.parts) return [];
+      return [...entry.parts.keys()];
+    },
     revision: String(THREE.REVISION)
   };
 }

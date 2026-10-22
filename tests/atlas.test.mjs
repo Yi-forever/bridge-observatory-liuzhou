@@ -6,6 +6,7 @@
  * 覆盖：真实地理数据完整性、桥梁落位与朝向、建筑在陆地、包围盒合理、状态切换稳定。
  */
 
+import fs from "node:fs";
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "../app3d/atlas.mjs";
 import { GEO } from "../app3d/geo.mjs";
@@ -673,6 +674,217 @@ for (const [id, entry] of atlas.buildings) {
       );
     }
   }
+}
+
+/* ---------------- 数据单一来源：app3d/bridges.data.mjs ---------------- */
+
+/**
+ * app.js 是 2D 页面的权威数据（经典脚本，不能 import），
+ * app3d/bridges.data.mjs 由 tools/build-bridge-data.mjs 从它抽取。
+ * 这里在测试里重做一次抽取并逐字段比对：只要有人改了 app.js 忘了重跑生成脚本，
+ * 3D 资料卡就会立刻变成红的。
+ */
+{
+  const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  const start = source.indexOf("const bridges = [");
+  checkTrue("app.js 里有权威 bridges 数据", start >= 0);
+
+  if (start >= 0) {
+    const literalStart = start + "const bridges = ".length;
+    const end = source.indexOf("\n];", literalStart);
+    checkTrue("app.js 的 bridges 数组有结尾", end > literalStart);
+    const literal = source.slice(literalStart, end + 3);
+    const fromApp = new Function(`return ${literal}`)();
+    const fromModule = JSON.parse(
+      fs.readFileSync(new URL("../app3d/bridges.data.mjs", import.meta.url), "utf8")
+        .match(/export const BRIDGES = ([\s\S]*?);\n\nexport const BRIDGE_BY_ID/)[1]
+    );
+
+    checkTrue(
+      "app3d/bridges.data.mjs 与 app.js 完全一致（不一致请跑 node tools/build-bridge-data.mjs）",
+      JSON.stringify(fromApp) === JSON.stringify(fromModule),
+      `app=${fromApp.length} 座 module=${fromModule.length} 座`
+    );
+
+    // 3D 场景拿到的就是这份数据
+    checkTrue("3D 使用的桥数与 2D 一致", BRIDGES.length === fromApp.length, `${BRIDGES.length}`);
+    for (const bridge of fromApp) {
+      const used = BRIDGES.find((item) => item.id === bridge.id);
+      checkTrue(`${bridge.id} 在 3D 数据里存在`, Boolean(used));
+      if (used) {
+        checkTrue(
+          `${bridge.id} 的构件说明可用于资料卡`,
+          Array.isArray(used.parts) && used.parts.length > 0 && used.parts.every((part) => part.label && part.description)
+        );
+      }
+    }
+  }
+}
+
+/* ---------------- 构件级拾取：每个构件都带 pick ---------------- */
+
+/**
+ * 资料卡点得动、模型点得中，全靠"构件身份"：
+ *   1. 每座桥的构件网格必须带 userData.pick（type = part）；
+ *   2. 2D 数据里的构件 id 必须能在 3D 里找到对应几何（"跨中"这种纯说明项除外，单独列白名单）。
+ */
+{
+  const optional = new Set(["mid-span"]); // 只有说明、没有单独几何的构件
+
+  for (const bridge of BRIDGES) {
+    const entry = atlas.bridges.get(bridge.id);
+    checkTrue(`${bridge.id} 有场景条目`, Boolean(entry));
+    if (!entry) continue;
+
+    checkTrue(`${bridge.id} 暴露了构件表`, entry.parts instanceof Map);
+    if (!(entry.parts instanceof Map)) continue;
+
+    const ids = [...entry.parts.keys()];
+    checkTrue(`${bridge.id} 至少有两个可拾取构件`, ids.length >= 2, ids.join(","));
+
+    for (const part of bridge.parts) {
+      if (optional.has(part.id)) continue;
+      checkTrue(
+        `${bridge.id} 的" ${part.label} "有对应几何`,
+        entry.parts.has(part.id),
+        `3D 里有：${ids.join(",")}`
+      );
+    }
+
+    for (const [partId, part] of entry.parts) {
+      checkTrue(`${bridge.id}/${partId} 有网格`, part.meshes.length > 0);
+      for (const mesh of part.meshes) {
+        const pick = mesh.userData && mesh.userData.pick;
+        checkTrue(
+          `${bridge.id}/${partId} 的网格带构件拾取`,
+          Boolean(pick) && pick.type === "part" && pick.id === bridge.id && pick.partId === partId
+        );
+      }
+    }
+  }
+}
+
+/* ---------------- 资料卡：用桩 DOM 跑真代码 ---------------- */
+
+/**
+ * 面板是纯 DOM 逻辑，没有 jsdom 也能测：给一个最小的桩 document，
+ * 把 createPanel 的构建/定位/回调全跑一遍——至少拦住"某个字段名拼错"这类
+ * 只有打开浏览器才会发现的崩溃。
+ */
+{
+  const makeElement = (tag) => {
+    const element = {
+      tag,
+      className: "",
+      textContent: "",
+      innerHTML: "",
+      hidden: false,
+      type: "",
+      title: "",
+      dataset: {},
+      children: [],
+      listeners: {},
+      classList: {
+        set: new Set(),
+        add(name) {
+          this.set.add(name);
+        },
+        remove(name) {
+          this.set.delete(name);
+        },
+        toggle(name, force) {
+          const on = force === undefined ? !this.set.has(name) : force;
+          if (on) this.set.add(name);
+          else this.set.delete(name);
+          return on;
+        },
+        contains(name) {
+          return this.set.has(name);
+        }
+      },
+      setAttribute() {},
+      append(...nodes) {
+        this.children.push(...nodes);
+      },
+      addEventListener(type, handler) {
+        (this.listeners[type] = this.listeners[type] || []).push(handler);
+      },
+      scrollIntoView() {},
+      remove() {}
+    };
+    // innerHTML = "" 必须真的清空子节点：panel.mjs 每次重绘都靠它。
+    Object.defineProperty(element, "innerHTML", {
+      get() {
+        return element._html || "";
+      },
+      set(value) {
+        element._html = value;
+        if (value === "") element.children.length = 0;
+      }
+    });
+    return element;
+  };
+
+  globalThis.document = {
+    createElement: makeElement,
+    createTextNode: (textContent) => ({ tag: "#text", textContent })
+  };
+
+  const { createPanel } = await import("../app3d/panel.mjs");
+
+  const collect = (node, className, found = []) => {
+    if (!node || typeof node !== "object") return found;
+    if (typeof node.className === "string" && node.className.split(/\s+/).includes(className)) {
+      found.push(node);
+    }
+    for (const child of node.children || []) collect(child, className, found);
+    return found;
+  };
+
+  const host = makeElement("aside");
+  const calls = [];
+  const panel = createPanel(host, {
+    onPartSelect: (partId) => calls.push(`part:${partId}`),
+    onOpenLab: (id) => calls.push(`lab:${id}`)
+  });
+
+  for (const bridge of BRIDGES) {
+    const modeled = bridge.parts.filter((part) => part.id !== "mid-span").map((part) => part.id);
+    panel.show(bridge, { modeled });
+
+    const rows = collect(host, "a3d-part");
+    checkTrue(
+      `资料卡列出 ${bridge.name} 的全部构件`,
+      rows.length === bridge.parts.length,
+      `rows=${rows.length} parts=${bridge.parts.length}`
+    );
+
+    const modeledRows = rows.filter((row) => row.classList.contains("is-modeled"));
+    checkTrue(
+      `${bridge.name} 标记了可高亮的构件`,
+      modeledRows.length === modeled.length,
+      `modeled=${modeledRows.length} expect=${modeled.length}`
+    );
+
+    // 点第一个可高亮构件 → 应回调 onPartSelect
+    const target = modeledRows[0];
+    for (const handler of target.listeners.click || []) handler();
+    checkTrue(
+      `${bridge.name} 的构件行能触发回调`,
+      calls.includes(`part:${target.dataset.part}`),
+      calls.join(",")
+    );
+
+    panel.focusPart(modeled[0]);
+    const active = collect(host, "a3d-part").filter((row) => row.classList.contains("is-active"));
+    checkTrue(`资料卡能把 ${bridge.name} 的构件行标为当前`, active.length === 1, `active=${active.length}`);
+  }
+
+  // 关闭 → hide
+  panel.hide();
+  checkTrue("资料卡可以收起", panel.isOpen === false && host.hidden === true);
+
+  delete globalThis.document;
 }
 
 /* ---------------- 合并几何体必须有法线 ---------------- */
