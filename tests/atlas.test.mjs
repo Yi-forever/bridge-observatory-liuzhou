@@ -1967,9 +1967,25 @@ for (const bridge of GEO.bridges) {
     !/#if LAN_EDITION[\s\S]*?var browser = FindBrowser[\s\S]*?#else/.test(launcher)
   );
 
-  // 防火墙只跟着局域网版走，并且用标记避免反复提权
-  checkTrue("局域网版会自动放行防火墙", /EnsureFirewall/.test(launcher));
-  checkTrue("防火墙走提权重启", /Verb = "runas"/.test(launcher));
+  /*
+   * 启动阶段绝不提权。
+   *
+   * 早先的做法是启动时 Process.Start(自己, Verb="runas") 去补防火墙规则，
+   * 结果双击先弹 UAC；若系统里已有一个管理员权限的实例在跑，Windows 会拒绝再起一个
+   * 提升副本，并提示“现有实例正在以提升的权限运行”。
+   * 现在：启动只 netsh 读规则（不需要管理员），需要放行时由地址窗口里的按钮按需提权。
+   */
+  checkTrue(
+    "启动阶段只读判断、不提权",
+    /var firewallOk = localOnly \|\| skipFirewall \|\| FirewallAlreadyAllowed\(\);/.test(launcher)
+  );
+  checkTrue("已移除启动期提权函数", !/EnsureFirewall/.test(launcher));
+  checkTrue(
+    "提权只发生在按需按钮里",
+    /RequestFirewallAccess/.test(launcher) && /Verb = "runas"/.test(launcher)
+  );
+  checkTrue("地址窗口提供“放行防火墙”按钮", /放行防火墙/.test(launcher));
+  checkTrue("有单实例互斥（避免两个服务抢端口）", /AcquireSingleInstance/.test(launcher) && /new Mutex/.test(launcher));
   checkTrue("用标记文件记录已放行的 exe 路径", /firewall-allowed\.txt/.test(launcher));
   checkTrue("规则名按版本区分", /Bridge Observatory \(lan\)/.test(launcher) && /Bridge Observatory \(local\)/.test(launcher));
   checkTrue("规则判断用退出码而不是本地化文案", /result\.Ok = process\.ExitCode == 0;/.test(launcher));

@@ -44,6 +44,30 @@ namespace QiaojianLauncher
 #endif
         private const string RuleNamePort = "Bridge Observatory (port)";
 
+#if LAN_EDITION
+        private const string EditionName = "桥见柳州-手机访问";
+        private static Mutex _instanceMutex;
+#else
+        private const string EditionName = "桥见柳州";
+        private static Mutex _instanceMutex;
+#endif
+
+        /// <summary>同一时间只允许一个实例（--no-launch 的自动化测试除外）。</summary>
+        private static bool AcquireSingleInstance()
+        {
+            try
+            {
+                bool createdNew;
+                _instanceMutex = new Mutex(true, "Local\\QiaojianLiuzhou-" + EditionName, out createdNew);
+                return createdNew;
+            }
+            catch
+            {
+                // 互斥量创建失败不该阻止程序启动
+                return true;
+            }
+        }
+
         private static string _root;
         private static readonly Dictionary<string, string> MimeMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -98,8 +122,25 @@ namespace QiaojianLauncher
                 }
             }
 
-            // 只有局域网版需要碰防火墙；本地版永远不碰（改动别人的系统设置必须有必要才行）
-            var firewallOk = localOnly || skipFirewall || EnsureFirewall();
+            /*
+             * 启动阶段绝不提权。
+             *
+             * 原来这里会 Process.Start(自己, Verb="runas") 去补防火墙规则，
+             * 于是双击程序时先弹一次 UAC；若系统里已有一个以管理员身份运行的实例，
+             * Windows 会拒绝再启动一个提升的副本，并在界面上给出
+             * “现有实例正在以提升的权限运行”这类提示——用户看到的就是这句。
+             *
+             * 现在改成：启动时只用 netsh **读**规则（不需要管理员），
+             * 需要放行时由地址窗口里的按钮按需触发一次提权。
+             */
+            var firewallOk = localOnly || skipFirewall || FirewallAlreadyAllowed();
+
+            // 单实例：避免同时跑两个服务导致端口漂移、规则指向混乱
+            if (!noLaunch && !AcquireSingleInstance())
+            {
+                Fail("“" + EditionName + "”已经在运行了。\n请查看它已经打开的窗口；\n如果要重启，先关闭那个窗口。");
+                return 5;
+            }
 
             TcpListener listener = null;
             var port = startPort;
@@ -253,15 +294,19 @@ namespace QiaojianLauncher
             }
         }
 
-        /// <summary>
-        /// 确保防火墙放行。缺规则时：已是管理员就直接加；否则以管理员身份重启自己
-        /// （--add-firewall-only），等它加完再继续。用户拒绝授权时返回 false，
-        /// 服务照常运行（本机仍可访问），界面会给出提示。
-        /// </summary>
-        private static bool EnsureFirewall()
+        /// <summary>只读判断：当前这份 exe 是否已经被防火墙放行（netsh show 不需要管理员）。</summary>
+        private static bool FirewallAlreadyAllowed()
         {
-            var currentPath = Application.ExecutablePath;
-            if (RuleExists() && string.Equals(ReadMarker(), currentPath, StringComparison.OrdinalIgnoreCase)) return true;
+            if (!RuleExists()) return false;
+            return string.Equals(ReadMarker(), Application.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 按需提权放行（由地址窗口的按钮触发，启动时不调用）。
+        /// 成功返回 true；用户取消 UAC 或系统拒绝时返回 false。
+        /// </summary>
+        private static bool RequestFirewallAccess()
+        {
             if (IsAdmin()) return AddFirewallRules();
 
             try
@@ -275,7 +320,7 @@ namespace QiaojianLauncher
                 });
                 if (elevate == null) return false;
                 elevate.WaitForExit();
-                return RuleExists() && string.Equals(ReadMarker(), currentPath, StringComparison.OrdinalIgnoreCase);
+                return FirewallAlreadyAllowed();
             }
             catch
             {
@@ -414,7 +459,7 @@ namespace QiaojianLauncher
             {
                 Text = firewallOk
                     ? "防火墙已放行。关闭这个窗口即停止服务。"
-                    : "注意：防火墙未放行（管理员授权被取消），手机可能连不上。重新打开本程序并在弹窗里选择“是”即可。",
+                    : "防火墙尚未放行：手机可能连不上。点右侧按钮按需授权（只需一次）。",
                 Dock = DockStyle.Bottom,
                 Height = 46,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -450,6 +495,31 @@ namespace QiaojianLauncher
 
             buttons.Controls.Add(close);
             buttons.Controls.Add(copy);
+
+            if (!firewallOk)
+            {
+                var allow = new Button { Text = "放行防火墙", AutoSize = true, MinimumSize = new Size(110, 32) };
+                allow.Click += (sender, eventArgs) =>
+                {
+                    allow.Enabled = false;
+                    allow.Text = "等待授权…";
+                    var granted = RequestFirewallAccess();
+                    allow.Enabled = true;
+                    if (granted)
+                    {
+                        allow.Visible = false;
+                        hint.Text = "防火墙已放行。关闭这个窗口即停止服务。";
+                        hint.ForeColor = Color.DimGray;
+                    }
+                    else
+                    {
+                        allow.Text = "放行防火墙";
+                        hint.Text = "仍未放行（授权被取消或系统拒绝）。手机可能连不上；也可改用静态托管。";
+                        hint.ForeColor = Color.Firebrick;
+                    }
+                };
+                buttons.Controls.Add(allow);
+            }
 
             form.Controls.Add(addressBox);
             form.Controls.Add(title);
