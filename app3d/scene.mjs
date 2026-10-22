@@ -47,9 +47,8 @@ const LIMITS = {
 /** 聚焦距离：真实桥只有 3–7 个单位长，必须拉近才看得清结构。 */
 const FOCUS = {
   bridge: 9,
-  /** 实验室：比单桥资料卡再近一点，构件才看得清。 */
-  lab: 7.5,
-  building: 14
+  /** 实验词条打开时：比资料卡再近一点，构件才看得清。 */
+  lab: 7.5
 };
 
 const CLICK_THRESHOLD = 6;
@@ -734,61 +733,26 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   /* ---------------- 状态 ---------------- */
 
   function setState(state) {
-    // 实验室：镜头拉近到实验桥，力流由侧栏手动步进
-    if (state.view === "lab" && state.bridgeId) {
-      stopForce();
-      const entry = atlas.bridges.get(state.bridgeId);
-      if (entry) {
-        focusOn(
-          { x: entry.labelAnchor.x, y: 0.35, z: entry.labelAnchor.z },
-          FOCUS.lab
-        );
-        labels?.setActive(`bridge:${state.bridgeId}`);
-      }
-      setForceStep(state.bridgeId, Number.isInteger(state.step) ? state.step : -1);
-      atlas.setExploded(state.exploded ? state.bridgeId : null);
-      atlas.setSelection({ view: "bridge", bridgeId: state.bridgeId });
-      return;
-    }
-
-    // 不在实验室视图：清掉荷载/挠度叠加层
-    if (state.view !== "lab") disposeOverlay();
-
-    // 受力演示：只在单桥视图、且 mode === "force" 时跑
-    const wantForce = state.mode === "force" && state.view === "bridge" ? state.bridgeId : null;
-    if (wantForce) {
-      if (force.bridgeId !== wantForce) {
-        stopForce();
-        startForce(wantForce);
-      }
-    } else if (force.bridgeId) {
-      stopForce();
-    }
-
-    // 分层拆解：爆炸视图只对单桥
-    atlas.setExploded(state.exploded && state.view === "bridge" ? state.bridgeId : null);
-
+    // 单桥视图：镜头拉近；实验词条打开时用更近的焦距、并手动步进力流
     atlas.setSelection({ view: state.view, bridgeId: state.bridgeId });
 
     if (state.view === "bridge" && state.bridgeId) {
       const entry = atlas.bridges.get(state.bridgeId);
       if (entry) {
         const anchor = entry.labelAnchor;
-        focusOn({ x: anchor.x, y: 0.35, z: anchor.z }, FOCUS.bridge);
+        focusOn({ x: anchor.x, y: 0.35, z: anchor.z }, state.exp ? FOCUS.lab : FOCUS.bridge);
       }
       labels?.setActive(`bridge:${state.bridgeId}`);
-      return;
-    }
 
-    if (state.view === "lab" || state.view === "archive") {
-      const entry = atlas.buildings.get(state.view);
-      if (entry) {
-        focusOn(
-          { x: entry.group.position.x, y: 0.6, z: entry.group.position.z },
-          FOCUS.building
-        );
+      // 实验装置：力流步进 + 拆解（都以 exp 打开为前提）
+      stopForce();
+      if (state.exp) {
+        setForceStep(state.bridgeId, Number.isInteger(state.step) ? state.step : -1);
+        atlas.setExploded(state.exploded ? state.bridgeId : null);
+      } else {
+        atlas.clearPartHighlight();
+        atlas.setExploded(null);
       }
-      labels?.setActive(null);
       return;
     }
 
@@ -882,13 +846,6 @@ export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
       if (!entry) return false;
       focusOn({ x: entry.labelAnchor.x, y: 0.35, z: entry.labelAnchor.z }, FOCUS.lab);
       labels?.setActive(`bridge:${bridgeId}`);
-      return true;
-    },
-    /** 把镜头对准某栋场馆。 */
-    focusBuilding: (id) => {
-      const entry = atlas.buildings.get(id);
-      if (!entry) return false;
-      focusOn({ x: entry.group.position.x, y: 0.6, z: entry.group.position.z }, FOCUS.building);
       return true;
     },
     /** 手动开始/结束受力演示；传 null 结束。 */

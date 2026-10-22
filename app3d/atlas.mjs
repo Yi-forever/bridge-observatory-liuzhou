@@ -1459,61 +1459,6 @@ const BUILDERS = {
  * 建筑
  * ------------------------------------------------------------------ */
 
-function buildLabBuilding(COLOR) {
-  const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: COLOR.lab, roughness: 0.7 });
-  body.name = "lab";
-  const glow = new THREE.MeshStandardMaterial({
-    color: COLOR.glow,
-    emissive: new THREE.Color(COLOR.glow),
-    emissiveIntensity: 0.85,
-    roughness: 0.4
-  });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x9fd8e0, roughness: 0.5, metalness: 0.3 });
-
-  group.add(box(1.8, 0.95, 1.4, body, 0, 0.475, 0));
-  const roof = new THREE.Mesh(pyramidRoof(2.0, 0.55, 1.6), trim);
-  roof.position.set(0, 1.22, 0);
-  group.add(roof);
-
-  for (const z of [-0.71, 0.71]) {
-    for (const x of [-0.52, 0, 0.52]) {
-      group.add(box(0.3, 0.2, 0.03, glow, x, 0.68, z));
-    }
-  }
-  group.add(box(0.4, 0.52, 0.04, glow, 0, 0.26, 0.71));
-
-  return { group, top: 1.8 };
-}
-
-function buildArchiveBuilding(COLOR) {
-  const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: COLOR.archive, roughness: 0.75 });
-  body.name = "archive";
-  const trim = new THREE.MeshStandardMaterial({ color: 0xcbbfe0, roughness: 0.55 });
-  const glow = new THREE.MeshStandardMaterial({
-    color: COLOR.glow,
-    emissive: new THREE.Color(COLOR.glow),
-    emissiveIntensity: 0.7,
-    roughness: 0.45
-  });
-
-  group.add(box(1.45, 0.8, 1.45, body, 0, 0.4, 0));
-  const roof = new THREE.Mesh(pyramidRoof(1.75, 0.72, 1.75), trim);
-  roof.position.set(0, 1.16, 0);
-  group.add(roof);
-
-  for (const dx of [-0.58, 0.58]) {
-    for (const dz of [-0.7, 0.7]) {
-      group.add(cylinder(0.055, 0.8, trim, dx, 0.4, dz, 10));
-    }
-  }
-  group.add(box(1.56, 0.09, 0.08, trim, 0, 0.82, 0.7));
-  group.add(box(0.35, 0.48, 0.04, glow, 0, 0.24, 0.73));
-
-  return { group, top: 1.9 };
-}
-
 /* ------------------------------------------------------------------ *
  * 场景装配
  * ------------------------------------------------------------------ */
@@ -1531,7 +1476,6 @@ export function buildAtlas(options = {}) {
   const root = new THREE.Group();
   const pickables = [];
   const bridges = new Map();
-  const buildings = new Map();
   const labelItems = [];
 
   const viewWindow = GEO.window;
@@ -1703,92 +1647,6 @@ export function buildAtlas(options = {}) {
     if (item.type !== "bridge") continue;
     const meta = BRIDGES.find((entry) => entry.id === item.id);
     if (meta) item.sub = `${meta.year} · ${meta.type}`;
-  }
-
-  // 两栋建筑：落在江湾内的陆地上
-  const buildingSpecs = [
-    {
-      id: "lab",
-      builder: buildLabBuilding,
-      name: "桥梁结构实验室",
-      sub: "力流 · 拆解 · 荷载",
-      accent: "#9fd8e0",
-      preferred: [
-        [-13, 4],
-        [-16, -2],
-        [-10, 8],
-        [-18, 10]
-      ]
-    },
-    {
-      id: "archive",
-      builder: buildArchiveBuilding,
-      name: "桥梁档案馆",
-      sub: "档案 · 知识挑战",
-      accent: "#cbbfe0",
-      preferred: [
-        [-9, 24],
-        [-12, 28],
-        [-6, 20],
-        [-15, 20]
-      ]
-    }
-  ];
-
-  for (const spec of buildingSpecs) {
-    const usable = spec.preferred.filter(
-      ([x, z]) =>
-        x > viewWindow.minX + 3 &&
-        x < viewWindow.maxX - 3 &&
-        z > viewWindow.minZ + 3 &&
-        z < viewWindow.maxZ - 3 &&
-        distanceToRivers(x, z, GEO.rivers) > halfWidth + RIVER_CLEARANCE &&
-        GEO.bridges.every((bridge) => Math.hypot(bridge.x - x, bridge.z - z) > 2.5)
-    );
-    const origin = usable[0] || spec.preferred[0];
-
-    /*
-     * 从首选项出发螺旋外扩，找一块同时满足：窗口内、离江够远、离桥够远、
-     * 并且落在盆底平地上的位置——坡地上摆一栋 1.8×1.4 单位的场馆会歪。
-     */
-    const fits = (x, z) =>
-      x > viewWindow.minX + 3 &&
-      x < viewWindow.maxX - 3 &&
-      z > viewWindow.minZ + 3 &&
-      z < viewWindow.maxZ - 3 &&
-      distanceToRivers(x, z, GEO.rivers) > halfWidth + RIVER_CLEARANCE &&
-      GEO.bridges.every((bridge) => Math.hypot(bridge.x - x, bridge.z - z) > 2.5) &&
-      terrainHeightAt(x, z) < 0.25;
-
-    const spot = findVenueSpot(origin, fits) || origin;
-
-    const model = spec.builder(COLOR);
-    const group = new THREE.Group();
-    group.add(model.group);
-    group.position.set(spot[0], terrainSurfaceAt(spot[0], spot[1]), spot[1]);
-    group.rotation.y = Math.atan2(-spec.preferred[0][1], spec.preferred[0][0]) * 0;
-    group.userData.pick = { type: "building", id: spec.id };
-
-    const proxy = new THREE.Mesh(
-      new THREE.BoxGeometry(3.4, 3.2, 3.4),
-      new THREE.MeshBasicMaterial({ visible: false })
-    );
-    proxy.position.y = 1.4;
-    group.add(proxy);
-
-    root.add(group);
-    pickables.push(group);
-    buildings.set(spec.id, { group, top: model.top });
-
-    labelItems.push({
-      key: `building:${spec.id}`,
-      type: "building",
-      id: spec.id,
-      text: spec.name,
-      sub: spec.sub,
-      accent: spec.accent,
-      position: new THREE.Vector3(spot[0], model.top + 0.7, spot[1])
-    });
   }
 
   // 城市街区（占位楼群）已整体移除：v2.4 起地形是真实 DEM 高度场，
@@ -1980,10 +1838,6 @@ export function buildAtlas(options = {}) {
       entry.accent.emissiveIntensity = glowBase + emphasis.glow;
       entry.marker.material.opacity = emphasis.ring;
     }
-    for (const [id, entry] of buildings) {
-      const active = hoveredKey === `building:${id}`;
-      entry.group.scale.setScalar(active ? 1.1 : 1);
-    }
   }
 
   function setSelection(next) {
@@ -2065,7 +1919,6 @@ export function buildAtlas(options = {}) {
     pickables,
     theme: { id: theme.id, label: theme.label },
     bridges,
-    buildings,
     labels: labelItems,
     curves,
     heightAt: terrainHeightAt,

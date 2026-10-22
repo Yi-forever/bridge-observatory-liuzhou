@@ -880,13 +880,15 @@ body.app3d-active {
  * 与 app3d/lab.mjs 成对维护。
  * ------------------------------------------------------------------ */
 
+/* 实验词条固定左栏：右侧留给资料词条，中间留给模型 */
 .a3d-lab {
   position: absolute;
   z-index: 6;
   top: 96px;
-  right: 28px;
-  width: min(360px, calc(100vw - 56px));
-  max-height: calc(100vh - 180px);
+  left: 28px;
+  width: min(340px, calc(100vw - 56px));
+  /* 高度让开左下角的 HUD，不跟它抢位置 */
+  max-height: calc(100vh - 320px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1111,7 +1113,7 @@ body.app3d-active {
     left: 12px;
     bottom: 12px;
     width: auto;
-    max-height: 62vh;
+    max-height: 46vh;
   }
 }
 

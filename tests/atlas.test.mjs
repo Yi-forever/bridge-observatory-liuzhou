@@ -114,9 +114,11 @@ for (const bridge of GEO.bridges) {
 const atlas = buildAtlas();
 
 check("bridge count", atlas.bridges.size, 5);
-check("building count", atlas.buildings.size, 2);
-check("pickables", atlas.pickables.length, 7);
-check("label count", atlas.labels.length, 7);
+// 两栋建筑（结构实验室、档案馆）2026-10-22 按要求整体删除：
+// 实验与档案并进单桥视图，场景里只剩江、桥、山。
+checkTrue("建筑物已移除", atlas.buildings === undefined, typeof atlas.buildings);
+check("pickables", atlas.pickables.length, 5);
+check("label count", atlas.labels.length, 5);
 
 for (const bridge of GEO.bridges) {
   const entry = atlas.bridges.get(bridge.id);
@@ -137,20 +139,7 @@ for (const bridge of GEO.bridges) {
   checkTrue(`scene ${bridge.id} height`, entry.top > 0.2, `top=${entry.top}`);
 }
 
-for (const [id, entry] of atlas.buildings) {
-  const { x, z } = entry.group.position;
-  checkTrue(`building ${id} finite`, Number.isFinite(x) && Number.isFinite(z));
-  const distance = distanceToRivers(x, z);
-  checkTrue(`building ${id} on land`, distance > GEO.riverHalfWidth, `distance=${distance.toFixed(2)}`);
-  for (const bridge of GEO.bridges) {
-    checkTrue(
-      `building ${id} clear of ${bridge.id}`,
-      Math.hypot(bridge.x - x, bridge.z - z) > 2.5,
-      `distance=${Math.hypot(bridge.x - x, bridge.z - z).toFixed(2)}`
-    );
-  }
-}
-
+// 建筑落位检查随建筑一起删除（见上）。
 /* ---------------- 文惠桥：中承式钢管混凝土拱桥 ---------------- */
 
 /**
@@ -927,7 +916,8 @@ for (const [id, entry] of atlas.buildings) {
     if (!object.isMesh) return;
     if (object.material && object.material.name) names.add(object.material.name);
   });
-  for (const name of ["concrete", "deck", "water", "frame", "lab", "archive", "terrain"]) {
+  // 两栋建筑删掉后，lab/archive 材质不再存在；剩下的角色名要保证齐全
+  for (const name of ["concrete", "deck", "water", "frame", "terrain"]) {
     checkTrue(`材质 ${name} 带角色名（恢复主题时要用）`, names.has(name), [...names].join(","));
   }
 }
@@ -1008,23 +998,36 @@ for (const [id, entry] of atlas.buildings) {
 /* ---------------- 地址栏状态往返 ---------------- */
 
 /**
- * mode / explode 是"整场外观与拆解"的开关，必须对所有视图都写进 hash——
- * 早先只对单桥视图生效，于是在总览点"夜景"会静默无效。
+ * 地址栏约定（2026-10-22 起）：三个视图 atlas/bridge/browse，
+ * 单桥视图的 exp/step/load/colors/explode/quiz 都是可选装置，必须能无损往返。
+ * 另外两条要守住：旧的 #lab/#archive 链接不能白屏；旧的 ?mode= 参数要被忽略而不是报错。
  */
 {
-  const { toHash, parseHash, MODES } = await import("../app3d/state.mjs");
+  const { toHash, parseHash, VIEWS } = await import("../app3d/state.mjs");
+
+  checkTrue("只剩三个视图", VIEWS.length === 3 && VIEWS.join(",") === "atlas,bridge,browse", VIEWS.join(","));
 
   const cases = [];
-  for (const view of ["atlas", "lab", "archive", "browse"]) {
-    for (const mode of MODES) {
-      for (const exploded of [false, true]) {
-        cases.push({ view, bridgeId: null, mode, exploded, legacy: false });
-      }
-    }
+  // 拆解只属于单桥视图：atlas/browse 不带 explode，也不该写进地址
+  for (const view of ["atlas", "browse"]) {
+    cases.push({ view, bridgeId: null, exp: false, step: null, load: null, colors: false, exploded: false, quiz: null });
   }
   for (const bridge of BRIDGES) {
-    for (const mode of MODES) {
-      cases.push({ view: "bridge", bridgeId: bridge.id, mode, exploded: false, legacy: false });
+    for (const exp of [false, true]) {
+      for (const step of [null, 0, 3]) {
+        for (const load of [null, 0.5, 1]) {
+          cases.push({
+            view: "bridge",
+            bridgeId: bridge.id,
+            exp,
+            step,
+            load,
+            colors: exp && Boolean(step % 2),
+            exploded: exp && Boolean(load),
+            quiz: null
+          });
+        }
+      }
     }
   }
 
@@ -1035,38 +1038,38 @@ for (const [id, entry] of atlas.buildings) {
     const same =
       parsed.view === input.view &&
       parsed.bridgeId === input.bridgeId &&
-      parsed.mode === input.mode &&
-      parsed.exploded === input.exploded;
+      Boolean(parsed.exp) === Boolean(input.exp) &&
+      (parsed.step ?? null) === (input.step ?? null) &&
+      (parsed.load ?? null) === (input.load ?? null) &&
+      Boolean(parsed.colors) === Boolean(input.colors) &&
+      Boolean(parsed.exploded) === Boolean(input.exploded);
     if (!same) {
       mismatches += 1;
-      if (mismatches <= 3) {
-        console.log(`    ${hash} → ${JSON.stringify({ view: parsed.view, mode: parsed.mode, exploded: parsed.exploded })}`);
-      }
+      if (mismatches <= 3) console.log(`    ${hash} → ${JSON.stringify(parsed)}`);
     }
   }
   check("地址栏状态可无损往返", mismatches, 0);
 
-  // mode 即使不在单桥视图也要进 hash
+  // 已退役的建筑视图不能白屏
+  for (const retired of ["#lab", "#archive", "#lab?bridge=baisha&step=2"]) {
+    const parsed = parseHash(retired);
+    checkTrue(`${retired} 落到总览而不是白屏`, parsed.view === "atlas", parsed.view);
+  }
+
+  // 旧的 mode 参数被忽略（夜景已删、受力改用实验词条）
+  const legacyMode = parseHash("#bridge/baisha?mode=night");
+  checkTrue("旧 ?mode= 参数被忽略但地址仍可用", legacyMode.view === "bridge" && legacyMode.bridgeId === "baisha");
+
+  // 实验参数写进地址
   checkTrue(
-    "总览视图的受力模式写进 hash",
-    toHash({ view: "atlas", bridgeId: null, mode: "force", exploded: false }) === "#atlas?mode=force",
-    toHash({ view: "atlas", bridgeId: null, mode: "force", exploded: false })
+    "实验状态写进地址",
+    toHash({ view: "bridge", bridgeId: "baisha", exp: true, step: 2, load: 0.5, colors: true, exploded: true }) ===
+      "#bridge/baisha?exp=1&step=2&load=0.5&colors=1&explode=1",
+    toHash({ view: "bridge", bridgeId: "baisha", exp: true, step: 2, load: 0.5, colors: true, exploded: true })
   );
-  checkTrue(
-    "已移除的夜景链接降级为 structure",
-    parseHash("#bridge/baisha?mode=night").mode === "structure",
-    parseHash("#bridge/baisha?mode=night").mode
-  );
-  checkTrue(
-    "拆解在单桥视图写进 hash",
-    toHash({ view: "bridge", bridgeId: "baisha", mode: "structure", exploded: true }) ===
-      "#bridge/baisha?explode=1",
-    toHash({ view: "bridge", bridgeId: "baisha", mode: "structure", exploded: true })
-  );
-  checkTrue(
-    "非法 mode 回落为 structure",
-    parseHash("#bridge/baisha?mode=disco").mode === "structure"
-  );
+
+  // 未知桥回落总览
+  checkTrue("未知桥回落总览", parseHash("#bridge/nope").view === "atlas");
 }
 
 /* ---------------- 结构实验室：侧栏（桩 DOM 跑真代码） ---------------- */
@@ -1618,7 +1621,7 @@ checkTrue("bounding box height", box.max.y > 0.5, `maxY=${box.max.y.toFixed(1)}`
 
 atlas.setSelection({ view: "bridge", bridgeId: "wenhui" });
 atlas.setHover("bridge:wenhui");
-atlas.setHover("building:lab");
+atlas.setHover("part:wenhui:arch");
 atlas.setHover(null);
 atlas.setSelection({ view: "atlas", bridgeId: null });
 

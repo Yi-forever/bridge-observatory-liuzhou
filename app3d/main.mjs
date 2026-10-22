@@ -26,7 +26,7 @@ const els = {
   bridgeList: document.getElementById("sceneBridgeList"),
   panel: document.getElementById("scenePanel"),
   labPanel: document.getElementById("sceneLab"),
-  btnExplode: document.getElementById("btnExplode"),
+  btnExperiment: document.getElementById("btnExperiment"),
   btnBrowse: document.getElementById("btnBrowse"),
   btnReset: document.getElementById("btnResetView"),
   guide: document.getElementById("guideDialog"),
@@ -37,7 +37,6 @@ const els = {
 };
 
 const navItems = Array.from(document.querySelectorAll("[data-nav]"));
-const modeItems = Array.from(document.querySelectorAll("[data-mode]"));
 
 function detectWebGL() {
   try {
@@ -67,18 +66,11 @@ let lab = null;
 /** 正在等待场景就绪的构件高亮（先跳视图、再高亮）。 */
 let pendingPart = null;
 
-/** 实验室的默认实验对象：文惠桥（M2 的垂直切片）。 */
-const LAB_DEFAULT_BRIDGE = "wenhui";
-
 /** 自动播放力流的定时器。 */
 let labTimer = null;
-
-/** 荷载（0..1）与最近一次读数文案。 */
-let labLoad = 0;
+/** 荷载读数文案（由场景回传）。 */
 let labLoadText = "";
-/** 受力配色开关（不写进 hash：属于临时观察方式）。 */
-let labForceColors = false;
-/** 实验室页签与对比对象（同样是临时状态）。 */
+/** 实验词条页签与对比对象（临时状态，不进 hash）。 */
 let labTab = "experiment";
 let labCompare = { a: null, b: null };
 
@@ -89,11 +81,16 @@ function stopLabPlayback() {
   }
 }
 
-/** 当前实验室状态（视图、桥、步、拆解）。 */
-function labStateOf(state) {
+/**
+ * 实验状态全部来自路由：exp / step / load / colors / explode 都在 hash 里。
+ * 这样刷新、分享、前进后退都能回到同一次实验。
+ */
+function experimentState(state) {
   return {
-    bridgeId: state.bridgeId || LAB_DEFAULT_BRIDGE,
+    exp: Boolean(state.exp),
     step: Number.isInteger(state.step) ? state.step : null,
+    load: typeof state.load === "number" ? state.load : 0,
+    colors: Boolean(state.colors),
     exploded: Boolean(state.exploded)
   };
 }
@@ -163,11 +160,22 @@ function describe(state) {
   if (state.view === "bridge") {
     const bridge = BRIDGE_BY_ID.get(state.bridgeId);
     if (bridge) {
-      let sub = `${bridge.year} 年 · ${bridge.type} · 点桥上的构件可以单独高亮，右侧资料卡会跟着定位。`;
-      if (state.mode === "force") {
-        sub = "力流演示：桥面 → 承重构件 → 墩座，逐级高亮（玫红），右侧资料卡同步讲解。";
+      const profile = PROFILES[bridge.model];
+      const flow = labFlow(state.bridgeId);
+      const stepText =
+        Number.isInteger(state.step) && state.step >= 0 && flow[state.step]
+          ? `第 ${state.step + 1} 步 · ${flow[state.step]}`
+          : "选一步开始";
+
+      // 实验词条打开时，标题行顺带交代当前实验状态；收起时回到普通桥名
+      let sub = `${bridge.year} 年 · ${bridge.type} · 点桥上的构件看它的作用，右侧资料词条会跟着定位。`;
+      if (state.exp) {
+        sub = `${stepText}。${profile ? profile.force : ""}`;
+        if (typeof state.load === "number" && state.load > 0) {
+          sub += ` 荷载 ${Math.round(state.load * 100)}%。`;
+        }
+        if (state.exploded) sub += " 已拆解。";
       }
-      if (state.exploded) sub += " 已拆解：构件按层拉开，能看清谁压在谁上面。";
       return {
         kicker: `M2 / BRIDGE · ${bridge.order}`,
         title: bridge.name,
@@ -175,38 +183,10 @@ function describe(state) {
       };
     }
   }
-  if (state.view === "lab") {
-    const { bridgeId, step } = labStateOf(state);
-    const bridge = BRIDGE_BY_ID.get(bridgeId);
-    const flow = labFlow(bridgeId);
-    const stepText =
-      Number.isInteger(step) && step >= 0 && flow[step]
-        ? `第 ${step + 1} 步 · ${flow[step]}`
-        : "选一步开始";
-    const profile = bridge ? PROFILES[bridge.model] : null;
-    return {
-      kicker: "M2 / STRUCTURE LAB",
-      title: bridge ? `结构实验室 · ${bridge.name}` : "桥梁结构实验室",
-      sub: profile
-        ? `${stepText}。${profile.force}；${profile.question}`
-        : stepText
-    };
-  }
-  if (state.view === "archive") {
-    return {
-      kicker: "M2 / ARCHIVE",
-      title: "桥梁档案馆",
-      sub: "建筑已就位 · 档案与答题建设中（M3）。可先切到列表视图使用现有对比与答题页面。"
-    };
-  }
-  const atlasSub =
-    state.mode === "force"
-      ? "选一座桥再切到「受力」，就会逐级演示荷载怎么往下传。"
-      : "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。";
   return {
     kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: atlasSub
+    sub: "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁进入资料词条，点构件看它在受力里干什么。"
   };
 }
 
@@ -275,8 +255,6 @@ function handlePick(pick) {
     if (alreadyHere) {
       focusPart(pick.id, pick.partId);
     } else {
-      // 换了视图：视图渲染会重建资料卡并清高亮，
-      // 所以这里先记下来，等 applyPanel 渲染完再高亮。
       pendingPart = { bridgeId: pick.id, partId: pick.partId };
       window.location.hash = `#bridge/${pick.id}`;
     }
@@ -284,16 +262,7 @@ function handlePick(pick) {
   }
 
   if (pick.type === "bridge") {
-    const state = router ? router.current : null;
-    if (state && state.view === "lab") {
-      window.location.hash = toHash({ ...state, bridgeId: pick.id, step: 0, exploded: false });
-      return;
-    }
     window.location.hash = `#bridge/${pick.id}`;
-    return;
-  }
-  if (pick.type === "building" && (pick.id === "lab" || pick.id === "archive")) {
-    window.location.hash = `#${pick.id}`;
   }
 }
 
@@ -322,7 +291,7 @@ function initScene() {
     scene = instance;
     if (latestState) {
       applyPanel(latestState);
-      applyLab(latestState);
+      applyExperiment(latestState);
     }
     return instance;
   })();
@@ -376,69 +345,64 @@ function applyPanel(state) {
   }
 }
 
-/** 实验室侧栏与场景同步；离开实验室视图时收起并停止播放。 */
-function applyLab(state) {
+/**
+ * 实验词条（左栏）与场景同步。
+ * 只有"单桥视图 + exp=1"时出现；收起时停止播放并清掉实验视觉。
+ */
+function applyExperiment(state) {
   if (!lab) return;
-  if (!state || state.view !== "lab") {
+
+  const exp = Boolean(state && state.view === "bridge" && state.exp && state.bridgeId);
+  const bridge = exp ? BRIDGE_BY_ID.get(state.bridgeId) : null;
+  if (!exp || !bridge) {
     lab.hide();
     stopLabPlayback();
-    labForceColors = false;
     labTab = "experiment";
     return;
   }
 
-  const { bridgeId, step, exploded } = labStateOf(state);
-  const bridge = BRIDGE_BY_ID.get(bridgeId);
-  if (!bridge) {
-    lab.hide();
-    return;
-  }
-
-  const flow = labFlow(bridgeId);
+  const current = experimentState(state);
+  const flow = labFlow(state.bridgeId);
   lab.show({
     bridge,
     flow,
-    step: Number.isInteger(step) ? step : null,
-    exploded,
+    step: current.step,
+    exploded: current.exploded,
     playing: labTimer !== null,
-    load: labLoad,
+    load: current.load,
     loadText: labLoadText,
-    forceColors: labForceColors,
+    forceColors: current.colors,
     showLoad: Boolean(scene && scene.setLabLoad),
     tab: labTab,
-    compare: {
-      a: labCompare.a || bridgeId,
-      b: labCompare.b
-    }
+    compare: { a: labCompare.a || state.bridgeId, b: labCompare.b }
   });
-  applyLabVisuals(state);
+  applyExperimentVisuals(state);
 }
 
 /**
- * 把实验室的视觉状态落到场景上：受力配色 / 力流步骤 / 荷载与挠度。
- * 必须在 scene.setState 之后再调用，否则会被 setState 里的高亮逻辑覆盖。
+ * 把实验的视觉状态落到场景上：受力配色 / 力流步骤 / 荷载与挠度。
+ * 必须在 scene.setState 之后调用，否则会被 setState 里的高亮逻辑覆盖。
  */
-function applyLabVisuals(state) {
-  if (!scene || !state || state.view !== "lab") return;
-  const { bridgeId, step } = labStateOf(state);
+function applyExperimentVisuals(state) {
+  if (!scene || !state || state.view !== "bridge" || !state.exp || !state.bridgeId) return;
+  const current = experimentState(state);
+  const bridgeId = state.bridgeId;
 
-  if (labForceColors) {
+  if (current.colors) {
     scene.colorizeForce(bridgeId, true);
   } else {
     scene.colorizeForce(bridgeId, false);
-    scene.setForceStep(bridgeId, Number.isInteger(step) ? step : -1);
+    scene.setForceStep(bridgeId, Number.isInteger(current.step) ? current.step : -1);
   }
 
-  const info = scene.setLabLoad ? scene.setLabLoad(bridgeId, labLoad) : null;
-  if (info) {
-    labLoadText =
-      info.load <= 0.001
-        ? "拖到 0 以上看荷载怎么传下去。挠度曲线为教学夸张（\u00d750），不是精确计算。"
-        : `跨中下沉约 ${info.realCm.toFixed(1)} cm（图形夸张 \u00d750）。`;
-  } else {
-    labLoadText = "";
-  }
-  if (lab && lab.isOpen) lab.show({ load: labLoad, loadText: labLoadText });
+  const info = scene.setLabLoad ? scene.setLabLoad(bridgeId, current.load) : null;
+  labLoadText = !info
+    ? ""
+    : info.load <= 0.001
+      ? "拖到 0 以上看荷载怎么传下去。挠度曲线为教学夸张（\u00d750），不是精确计算。"
+      : `跨中下沉约 ${info.realCm.toFixed(1)} cm（图形夸张 \u00d750）。`;
+
+  if (lab && lab.isOpen) lab.show({ load: current.load, loadText: labLoadText });
 }
 
 function renderBrowse() {
@@ -448,7 +412,7 @@ function renderBrowse() {
   document.body.classList.remove("a3d-active");
   if (scene) scene.stop();
   syncReturnButton(true);
-  updateStatus({ view: "browse", bridgeId: null, mode: "structure", exploded: false });
+  updateStatus({ view: "browse", bridgeId: null, exp: false, exploded: false });
 }
 
 function renderApp3d(state) {
@@ -467,13 +431,11 @@ function renderApp3d(state) {
   for (const item of navItems) {
     item.classList.toggle("is-active", item.dataset.nav === state.view);
   }
-  for (const item of modeItems) {
-    const active = (state.mode || "structure") === item.dataset.mode;
-    item.classList.toggle("is-active", active);
-    item.setAttribute("aria-pressed", active ? "true" : "false");
-  }
-  if (els.btnExplode) {
-    els.btnExplode.setAttribute("aria-pressed", state.exploded ? "true" : "false");
+  if (els.btnExperiment) {
+    const expOn = Boolean(state.view === "bridge" && state.exp);
+    els.btnExperiment.setAttribute("aria-pressed", expOn ? "true" : "false");
+    els.btnExperiment.classList.toggle("is-active", expOn);
+    els.btnExperiment.disabled = state.view !== "bridge";
   }
   if (els.bridgeList) {
     for (const link of els.bridgeList.querySelectorAll("a")) {
@@ -487,7 +449,7 @@ function renderApp3d(state) {
   updateStatus(state);
   applyPanel(state);
   ensureSceneReady(state);
-  applyLab(state);
+  applyExperiment(state);
 }
 
 function onChange(state, meta) {
@@ -525,14 +487,16 @@ function boot() {
     lab = createLab(els.labPanel, {
       bridges: BRIDGES,
       profiles: PROFILES,
-      loadNote: () => "",
+      legend: FORCE_LEGEND,
+      goals: GOALS,
       onSelectBridge: (bridgeId) => {
         const state = router ? router.current : null;
         if (!state) return;
         window.location.hash = toHash({
           ...state,
-          view: "lab",
+          view: "bridge",
           bridgeId,
+          exp: true,
           step: 0,
           exploded: false
         });
@@ -551,10 +515,9 @@ function boot() {
           lab.show({ playing: false });
           return;
         }
-        const flow = labFlow(labStateOf(state).bridgeId);
+        const flow = labFlow(state.bridgeId);
         if (flow.length === 0) return;
-        const start = Number.isInteger(state.step) ? state.step : -1;
-        let cursor = start;
+        let cursor = Number.isInteger(state.step) ? state.step : -1;
         const advance = () => {
           cursor = (cursor + 1) % flow.length;
           window.location.hash = toHash({ ...router.current, step: cursor });
@@ -569,18 +532,17 @@ function boot() {
         window.location.hash = toHash({ ...state, exploded: !state.exploded });
       },
       onSetLoad: (value) => {
-        labLoad = Math.max(0, Math.min(1, Number(value) || 0));
         const state = router ? router.current : null;
-        if (state) applyLabVisuals(state);
+        if (!state) return;
+        const load = Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100) / 100;
+        window.location.hash = toHash({ ...state, load: load === 0 ? null : load });
+        applyExperimentVisuals({ ...state, load });
       },
       onToggleColors: () => {
-        labForceColors = !labForceColors;
         const state = router ? router.current : null;
-        if (state) applyLabVisuals(state);
-        if (lab) lab.show({ forceColors: labForceColors });
+        if (!state) return;
+        window.location.hash = toHash({ ...state, colors: !state.colors });
       },
-      legend: FORCE_LEGEND,
-      goals: GOALS,
       onSelectTab: (tab) => {
         labTab = tab === "compare" ? "compare" : "experiment";
         if (lab) lab.show({ tab: labTab, compare: { a: labCompare.a, b: labCompare.b } });
@@ -593,8 +555,10 @@ function boot() {
       onFocusBridge: (bridgeId) => {
         if (scene && scene.focusBridge) scene.focusBridge(bridgeId);
       },
-      onOpenBridge: (bridgeId) => {
-        window.location.hash = `#bridge/${bridgeId}`;
+      onOpenBridge: () => {
+        const state = router ? router.current : null;
+        if (!state) return;
+        window.location.hash = toHash({ ...state, exp: false });
       },
       onOpen2d: () => openLegacyLab()
     });
@@ -616,22 +580,13 @@ function boot() {
     });
   }
 
-  for (const item of modeItems) {
-    item.addEventListener("click", () => {
+  if (els.btnExperiment) {
+    els.btnExperiment.addEventListener("click", () => {
       const state = router ? router.current : null;
-      if (!state) return;
-      window.location.hash = toHash({ ...state, mode: item.dataset.mode });
+      if (!state || state.view !== "bridge") return;
+      window.location.hash = toHash({ ...state, exp: !state.exp });
     });
   }
-
-  if (els.btnExplode) {
-    els.btnExplode.addEventListener("click", () => {
-      const state = router ? router.current : null;
-      if (!state) return;
-      window.location.hash = toHash({ ...state, exploded: !state.exploded });
-    });
-  }
-
   if (els.btnReset) {
     els.btnReset.addEventListener("click", () => {
       if (scene) scene.resetView();

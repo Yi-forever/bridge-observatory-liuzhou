@@ -647,19 +647,14 @@
 
         <nav class="app3d-nav" aria-label="场景导航">
           <a class="app3d-nav-item" data-nav="atlas" href="#atlas">城市总览</a>
-          <a class="app3d-nav-item" data-nav="lab" href="#lab">结构实验室</a>
-          <a class="app3d-nav-item" data-nav="archive" href="#archive">档案馆</a>
-          <div class="a3d-modes" role="group" aria-label="显示模式">
-            <button class="a3d-mode is-active" type="button" data-mode="structure" aria-pressed="true">结构</button>
-            <button class="a3d-mode" type="button" data-mode="force" aria-pressed="false">受力</button>
-          </div>
+          <a class="app3d-nav-item" data-nav="browse" href="#browse">列表</a>
           <button
             class="app3d-ghost"
-            id="btnExplode"
+            id="btnExperiment"
             type="button"
             aria-pressed="false"
-            title="把结构按构件分层拉开"
-          >拆解</button>
+            title="打开左侧实验词条：力流、荷载、受力配色与拆解"
+          >实验</button>
           <button class="app3d-ghost" id="btnResetView" type="button">重置视角</button>
           <button class="app3d-ghost" id="btnBrowse" type="button">列表视图</button>
         </nav>

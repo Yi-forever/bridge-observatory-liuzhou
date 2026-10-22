@@ -1,29 +1,57 @@
 /**
  * 场景状态机 + hash 路由 + 浏览器前进/后退。
  *
- * 地址约定：
+ * 地址约定（三个视图）：
  *   #atlas                       城市总览
- *   #bridge/<id>                 单桥场景（可选 ?mode=force&explode=1）
- *   #lab?bridge=<id>&step=<n>    结构实验室（可选：当前实验桥、力流步骤）
- *   #archive?bridge=<id>         档案馆（可选：聚焦某座桥）
+ *   #bridge/<id>                 单桥视图；查询参数都是"可选装置"：
+ *                                  exp=1      打开实验词条（左栏）
+ *                                  step=<n>   力流第 n 步（0 起）
+ *                                  load=<0-1> 车辆荷载
+ *                                  colors=1   受力配色
+ *                                  explode=1  结构拆解
+ *                                  quiz=<n>   资料词条滚到第 n 题
  *   #browse                      列表视图（降级 / 无障碍）
- *   #bridge=<id>&mode=...        旧链接格式，读取时兼容并归一化
+ *
+ * 变化史：早先有 #lab / #archive 两个"建筑视图"（结构实验室、档案馆）。
+ * 2026-10-22 起按要求砍掉两栋建筑，实验与档案都并进单桥视图；
+ * 旧链接（#lab、#archive、更早的 #bridge=x&mode=...）一律平滑回落，不留白屏。
  */
 
 import { BRIDGE_IDS } from "./data.mjs";
 
-export const VIEWS = ["atlas", "bridge", "lab", "archive", "browse"];
-// 夜景（night）已按要求移除；旧的 ?mode=night 链接会被 normalizeMode 回落成 structure。
-export const MODES = ["structure", "force"];
+export const VIEWS = ["atlas", "bridge", "browse"];
 
-function normalizeMode(mode) {
-  return MODES.includes(mode) ? mode : "structure";
+/** 已退役的"建筑视图"：没有实体建筑了，落到总览。 */
+const RETIRED_VIEWS = ["lab", "archive"];
+
+function parseIndex(value) {
+  const parsed = Number.parseInt(value || "", 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
+
+function parseRatio(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+const EMPTY = {
+  view: "atlas",
+  bridgeId: null,
+  exp: false,
+  step: null,
+  load: null,
+  colors: false,
+  exploded: false,
+  quiz: null,
+  legacy: false
+};
 
 /** 是否为旧版 `#bridge=wenhui&mode=force` 形式的链接。 */
 export function isLegacyHash(hash = window.location.hash) {
   const raw = String(hash).replace(/^#/, "").trim();
-  // 新格式带路径分隔符（#bridge/wenhui?mode=force），即使含 "=" 也不是旧格式。
+  // 新格式带路径分隔符（#bridge/wenhui?exp=1），即使含 "=" 也不是旧格式。
   if (!raw || raw.includes("/")) return false;
   return /^[A-Za-z][A-Za-z0-9_]*=/.test(raw);
 }
@@ -34,10 +62,7 @@ export function isLegacyHash(hash = window.location.hash) {
  */
 export function parseHash(hash = window.location.hash) {
   const raw = String(hash).replace(/^#/, "").trim();
-
-  if (!raw) {
-    return { view: "atlas", bridgeId: null, mode: "structure", exploded: false, legacy: false };
-  }
+  if (!raw) return { ...EMPTY };
 
   // 旧链接：bridge=wenhui&mode=force&explode=1
   if (isLegacyHash(raw)) {
@@ -45,10 +70,11 @@ export function parseHash(hash = window.location.hash) {
     const bridgeId = params.get("bridge");
     const known = BRIDGE_IDS.includes(bridgeId);
     return {
+      ...EMPTY,
       view: known ? "bridge" : "atlas",
       bridgeId: known ? bridgeId : null,
-      mode: normalizeMode(params.get("mode")),
       exploded: params.get("explode") === "1",
+      step: parseIndex(params.get("step")),
       legacy: true
     };
   }
@@ -62,65 +88,47 @@ export function parseHash(hash = window.location.hash) {
 
   if (head === "bridge") {
     const bridgeId = segments[1] || null;
-    if (BRIDGE_IDS.includes(bridgeId)) {
-      return {
-        view: "bridge",
-        bridgeId,
-        mode: normalizeMode(params.get("mode")),
-        exploded: params.get("explode") === "1",
-        legacy: false
-      };
-    }
-    return { view: "atlas", bridgeId: null, mode: "structure", exploded: false, legacy: false };
-  }
-
-  if (VIEWS.includes(head)) {
-    // 实验室与档案馆允许带一座桥：`#lab?bridge=baisha&step=2`
-    const requested = params.get("bridge");
-    const bridgeId = requested && BRIDGE_IDS.includes(requested) ? requested : null;
-    const stepRaw = Number.parseInt(params.get("step") || "", 10);
-    const step = Number.isInteger(stepRaw) && stepRaw >= 0 ? stepRaw : null;
+    if (!BRIDGE_IDS.includes(bridgeId)) return { ...EMPTY };
     return {
-      view: head,
+      ...EMPTY,
+      view: "bridge",
       bridgeId,
-      step,
-      mode: normalizeMode(params.get("mode")),
+      exp: params.get("exp") === "1",
+      step: parseIndex(params.get("step")),
+      load: parseRatio(params.get("load")),
+      colors: params.get("colors") === "1",
       exploded: params.get("explode") === "1",
-      legacy: false
+      quiz: parseIndex(params.get("quiz"))
     };
   }
 
-  return { view: "atlas", bridgeId: null, mode: "structure", exploded: false, legacy: false };
+  // 已退役的建筑视图：给一条能用的落地地址
+  if (RETIRED_VIEWS.includes(head)) return { ...EMPTY };
+
+  if (head === "browse") return { ...EMPTY, view: "browse" };
+
+  return { ...EMPTY };
 }
 
-/**
- * 状态对象 → hash 字符串。
- *
- * mode / explode 对**所有视图**都要写进去：拆解与受力是整场的状态，
- * 早先只在 bridge 视图带上参数，于是"在总览改状态"点了没反应。
- */
+/** 状态对象 → hash 字符串。 */
 export function toHash(state) {
   const view = VIEWS.includes(state.view) ? state.view : "atlas";
-  const mode = normalizeMode(state.mode); // 已移除的模式（如 night）不写进地址
-  const params = new URLSearchParams();
 
-  // 实验室与档案馆用 ?bridge= 指定对象（不是路径段，避免与 #bridge/<id> 冲突）
-  if ((view === "lab" || view === "archive") && state.bridgeId) {
-    params.set("bridge", state.bridgeId);
-  }
-  if (view === "lab" && Number.isInteger(state.step) && state.step >= 0) {
-    params.set("step", String(state.step));
-  }
-  if (mode !== "structure") params.set("mode", mode);
-  if (state.exploded) params.set("explode", "1");
-  const query = params.toString();
-  const suffix = query ? `?${query}` : "";
-
-  if (view === "bridge" && state.bridgeId) {
-    return `#bridge/${state.bridgeId}${suffix}`;
+  if (view === "bridge" && state.bridgeId && BRIDGE_IDS.includes(state.bridgeId)) {
+    const params = new URLSearchParams();
+    if (state.exp) params.set("exp", "1");
+    if (Number.isInteger(state.step) && state.step >= 0) params.set("step", String(state.step));
+    if (typeof state.load === "number" && state.load > 0) {
+      params.set("load", String(Math.round(state.load * 100) / 100));
+    }
+    if (state.colors) params.set("colors", "1");
+    if (state.exploded) params.set("explode", "1");
+    if (Number.isInteger(state.quiz) && state.quiz >= 0) params.set("quiz", String(state.quiz));
+    const query = params.toString();
+    return `#bridge/${state.bridgeId}${query ? `?${query}` : ""}`;
   }
 
-  return `#${view}${suffix}`;
+  return `#${view === "bridge" ? "atlas" : view}`;
 }
 
 export function sameState(a, b) {
@@ -128,9 +136,12 @@ export function sameState(a, b) {
   return (
     a.view === b.view &&
     a.bridgeId === b.bridgeId &&
+    Boolean(a.exp) === Boolean(b.exp) &&
     (a.step ?? null) === (b.step ?? null) &&
-    a.mode === b.mode &&
-    a.exploded === b.exploded
+    (a.load ?? null) === (b.load ?? null) &&
+    Boolean(a.colors) === Boolean(b.colors) &&
+    Boolean(a.exploded) === Boolean(b.exploded) &&
+    (a.quiz ?? null) === (b.quiz ?? null)
   );
 }
 
