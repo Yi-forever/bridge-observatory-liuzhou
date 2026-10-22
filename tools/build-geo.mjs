@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 真实地理数据管线（离线一次性运行，产物提交进仓库）。
  *
  *   node tools/build-geo.mjs                    # 取数（有缓存则跳过）+ 生成 app3d/geo.mjs
@@ -24,8 +24,15 @@ const OUT_FILE = path.join(ROOT, "app3d", "geo.mjs");
 
 const UA = "bridge-observatory-liuzhou/1.0 (educational static site)";
 
-/** 取数范围：覆盖五桥与壶城弯的核心区。 */
-const FETCH_BBOX = "24.24,109.30,24.44,109.50";
+/**
+ * 取数范围：覆盖五桥与壶城弯的核心区，并向东扩到足以包含柳江东侧的回弯。
+ * 东边界必须够远——柳江在城东绕出去再回来，那段连接河道在 109.50 以东，
+ * 少了它，河道会被切成两截，画面右下角就会出现一截悬空的短河。
+ */
+const FETCH_BBOX = "24.22,109.26,24.47,109.63";
+
+/** 只保留包含该名称河段的连通分量，避免把竹鹅溪等支流按同等宽度画出来。 */
+const RIVER_NAME = "柳江";
 
 /** 场景原点（等距投影中心）。 */
 const ORIGIN = { lat: 24.342, lon: 109.42 };
@@ -50,8 +57,11 @@ const SCENE_WINDOW = {
   maxZ: 44
 };
 
-/** 河道向窗口外延伸的余量，保证水面从画外流进来而不是凭空断掉。 */
-const CLIP_MARGIN = 26;
+/**
+ * 判定「这条河道与取景窗口相关」的余量。
+ * 河道不再逐点裁剪（见 selectByWindow），这个值只用来决定整条折线留不留。
+ */
+const WINDOW_TOUCH_MARGIN = 26;
 
 /** OSM 桥名 → 项目桥 id。注意柳州在 OSM 里登的是「文昌桥」，不是「文昌大桥」。 */
 const BRIDGE_NAME_TO_ID = new Map([
@@ -173,7 +183,7 @@ function round(value) {
  * 河道：按共享节点拼接成若干条连续折线
  * ------------------------------------------------------------------ */
 
-function stitchRivers(data) {
+function collectWays(data) {
   const coords = new Map();
   const ways = [];
   for (const element of data.elements) {
@@ -184,15 +194,52 @@ function stitchRivers(data) {
     });
     ways.push(element);
   }
+  return { coords, ways };
+}
 
+/** 按共享端点节点把 way 划分成互不相连的分量（并查集）。 */
+function componentsOf(ways) {
+  const byNode = new Map();
+  ways.forEach((way, index) => {
+    for (const id of new Set([way.nodes[0], way.nodes[way.nodes.length - 1]])) {
+      if (!byNode.has(id)) byNode.set(id, []);
+      byNode.get(id).push(index);
+    }
+  });
+
+  const parent = ways.map((_, index) => index);
+  const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  for (const list of byNode.values()) {
+    for (let i = 1; i < list.length; i += 1) union(list[0], list[i]);
+  }
+
+  const groups = new Map();
+  ways.forEach((_, index) => {
+    const root = find(index);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(index);
+  });
+  return [...groups.values()];
+}
+
+/**
+ * 沿共享端点把一条分量内的 way 串成折线。
+ *
+ * 汇流处（degree ≥ 3）不能盲取第一个候选：柳江与洛清江、竹鹅溪的夹角都很大，
+ * 顺着最"直"的那条走才不会把支流吞进主河道。转角过陡时宁可断开。
+ */
+function stitchWays(ways, coords) {
   const adjacency = new Map();
   const used = new Set();
   const chains = [];
 
   ways.forEach((way, index) => {
-    const head = way.nodes[0];
-    const tail = way.nodes[way.nodes.length - 1];
-    for (const key of new Set([head, tail])) {
+    for (const key of new Set([way.nodes[0], way.nodes[way.nodes.length - 1]])) {
       if (!adjacency.has(key)) adjacency.set(key, []);
       adjacency.get(key).push(index);
     }
@@ -210,6 +257,40 @@ function stitchRivers(data) {
     return out;
   }
 
+  const unit = (fromId, toId) => {
+    const a = coords.get(fromId);
+    const b = coords.get(toId);
+    if (!a || !b) return null;
+    const dx = b.lon - a.lon;
+    const dy = b.lat - a.lat;
+    const length = Math.hypot(dx, dy);
+    return length ? { x: dx / length, y: dy / length } : null;
+  };
+
+  const pick = (candidates, incoming, afterId) => {
+    let best = null;
+    let bestScore = -Infinity;
+    for (const index of candidates) {
+      const way = ways[index];
+      const forward = way.nodes[0] === afterId;
+      const nextId = forward ? way.nodes[1] : way.nodes[way.nodes.length - 2];
+      const outgoing = unit(afterId, nextId);
+      if (!outgoing) continue;
+      const score = incoming
+        ? incoming.x * outgoing.x + incoming.y * outgoing.y
+        : 1;
+      if (score > bestScore) {
+        bestScore = score;
+        best = index;
+      }
+    }
+    if (best === null) return null;
+    // 没有岔路就一定是同一条河，无论弯多急都得接上——壶城发卡弯本来就有近 90° 的折角
+    if (candidates.length === 1 || !incoming) return best;
+    // 有岔路时只走最"直"的那条，转角过陡（约 78° 以上）视为支流汇入，不并进主河道
+    return bestScore >= 0.2 ? best : null;
+  };
+
   for (let index = 0; index < ways.length; index += 1) {
     if (used.has(index)) continue;
     used.add(index);
@@ -220,22 +301,28 @@ function stitchRivers(data) {
     if (!closed) {
       for (;;) {
         const tail = chain[chain.length - 1];
+        const previous = chain[chain.length - 2];
         const candidates = (adjacency.get(tail) || []).filter((i) => !used.has(i));
         if (!candidates.length) break;
-        const next = ways[candidates[0]];
-        used.add(candidates[0]);
-        const forward = next.nodes[0] === tail;
-        const seq = forward ? next.nodes.slice(1) : next.nodes.slice(0, -1).reverse();
+        const next = pick(candidates, unit(previous, tail), tail);
+        if (next === null) break;
+        used.add(next);
+        const node = ways[next];
+        const forward = node.nodes[0] === tail;
+        const seq = forward ? node.nodes.slice(1) : node.nodes.slice(0, -1).reverse();
         chain = chain.concat(seq);
       }
       for (;;) {
         const head = chain[0];
+        const after = chain[1];
         const candidates = (adjacency.get(head) || []).filter((i) => !used.has(i));
         if (!candidates.length) break;
-        const next = ways[candidates[0]];
-        used.add(candidates[0]);
-        const forward = next.nodes[next.nodes.length - 1] === head;
-        const seq = forward ? next.nodes.slice(0, -1) : next.nodes.slice(1).reverse();
+        const next = pick(candidates, unit(after, head), head);
+        if (next === null) break;
+        used.add(next);
+        const node = ways[next];
+        const forward = node.nodes[node.nodes.length - 1] === head;
+        const seq = forward ? node.nodes.slice(0, -1) : node.nodes.slice(1).reverse();
         chain = seq.concat(chain);
       }
     }
@@ -244,6 +331,59 @@ function stitchRivers(data) {
     if (latlon.length >= 2) chains.push(latlon);
   }
 
+  return chains;
+}
+
+/**
+ * 只拼接包含「柳江」河段的分量。
+ *
+ * 本次取数范围内还有竹鹅溪、洛清江等支流；它们与主河道共用同一宽度参数，
+ * 一起画出来会失真，因此整条剔除——先由名称圈定分量，再由窗口筛选。
+ */
+function stitchRivers(data, win) {
+  const { coords, ways } = collectWays(data);
+  const groups = componentsOf(ways);
+  const kept = groups.filter((group) =>
+    group.some((index) => (ways[index].tags || {}).name === RIVER_NAME)
+  );
+  console.log(
+    `river ways: ${ways.length}, components: ${groups.length}, ` +
+      `${RIVER_NAME} components: ${kept.length}`
+  );
+
+  // 一条河在取数范围里可能伸出去很远，判断"哪条分支才是画面里这条河"要看窗口内的长度，
+  // 不能看总长：城北那段延伸有 15 km，比穿过市区的这一段长得多。
+  const insideLength = (chain) => {
+    let total = 0;
+    for (let i = 1; i < chain.length; i += 1) {
+      const a = project(chain[i - 1].lat, chain[i - 1].lon);
+      const b = project(chain[i].lat, chain[i].lon);
+      const x = (a.x + b.x) / 2;
+      const z = (a.z + b.z) / 2;
+      const inWindow =
+        x >= win.minX - WINDOW_TOUCH_MARGIN &&
+        x <= win.maxX + WINDOW_TOUCH_MARGIN &&
+        z >= win.minZ - WINDOW_TOUCH_MARGIN &&
+        z <= win.maxZ + WINDOW_TOUCH_MARGIN;
+      if (inWindow) total += Math.hypot(b.x - a.x, b.z - a.z);
+    }
+    return total;
+  };
+
+  const chains = [];
+  for (const group of kept) {
+    const stitched = stitchWays(group.map((i) => ways[i]), coords);
+    if (stitched.length > 1) {
+      // 河中岛（如萝卜洲）会把河道分成两条汊道，形成 Y 形岔路。
+      // 这个细节层次下只保留窗口内最长的一条中心线，否则会画出两条平行且断头的水带。
+      stitched.sort((a, b) => insideLength(b) - insideLength(a));
+      console.log(
+        `  component has ${stitched.length} branches, inside-window length ` +
+          `${stitched.map((c) => round(insideLength(c))).join(", ")} -> keep the longest`
+      );
+    }
+    if (stitched.length) chains.push(stitched[0]);
+  }
   return chains;
 }
 
@@ -268,26 +408,23 @@ function cleanRivers(chains) {
  * 裁剪与端点延伸
  * ------------------------------------------------------------------ */
 
-function clipToWindow(lines, win, margin) {
-  const out = [];
-  for (const line of lines) {
-    let current = [];
-    for (const [x, z] of line) {
-      const inside =
+/**
+ * 只保留真正进入取景窗口的折线，整条保留、不在中途切断。
+ *
+ * 早先按「窗口 + margin」逐点裁剪，断口恰好落在相机可视范围（默认视角能看到
+ * 窗口外约 75 单位）之内，画面边缘就会出现凭空断头的河道。整条保留后，
+ * 河道必然从画面外流进、再流出画面外。
+ */
+function selectByWindow(lines, win, margin) {
+  return lines.filter((line) =>
+    line.some(
+      ([x, z]) =>
         x >= win.minX - margin &&
         x <= win.maxX + margin &&
         z >= win.minZ - margin &&
-        z <= win.maxZ + margin;
-      if (inside) {
-        current.push([x, z]);
-      } else {
-        if (current.length >= 2) out.push(current);
-        current = [];
-      }
-    }
-    if (current.length >= 2) out.push(current);
-  }
-  return out;
+        z <= win.maxZ + margin
+    )
+  );
 }
 
 /**
@@ -377,16 +514,25 @@ function preview(rivers, bridges, win) {
     row: Math.round(((win.maxZ - z) / (win.maxZ - win.minZ)) * (ROWS - 1))
   });
 
+  const clamp = (cell) => ({
+    col: Math.min(COLS - 1, Math.max(0, cell.col)),
+    row: Math.min(ROWS - 1, Math.max(0, cell.row))
+  });
+  const inside = (cell) => cell.col >= 0 && cell.col < COLS && cell.row >= 0 && cell.row < ROWS;
+
   for (const line of rivers) {
     let previous = null;
     for (const [x, z] of line) {
       const cell = toCell(x, z);
-      if (previous) {
-        const steps = Math.max(Math.abs(cell.col - previous.col), Math.abs(cell.row - previous.row));
+      // 两端都在画外的线段不画，否则会在图里留下一条横穿画面的假线
+      if (previous && (inside(previous) || inside(cell))) {
+        const from = clamp(previous);
+        const to = clamp(cell);
+        const steps = Math.max(Math.abs(to.col - from.col), Math.abs(to.row - from.row));
         for (let s = 0; s <= steps; s += 1) {
           const t = steps === 0 ? 0 : s / steps;
-          const col = Math.round(previous.col + (cell.col - previous.col) * t);
-          const row = Math.round(previous.row + (cell.row - previous.row) * t);
+          const col = Math.round(from.col + (to.col - from.col) * t);
+          const row = Math.round(from.row + (to.row - from.row) * t);
           if (grid[row] && grid[row][col] !== undefined) grid[row][col] = "#";
         }
       }
@@ -433,9 +579,11 @@ const window = cropArg
     })()
   : SCENE_WINDOW;
 
+// 河道取全部 river 而不只是 name=柳江：柳江东侧回弯处有两段未命名的连接河道，
+// 只按名称查会把主河道切成两截。拼接后再按名称圈定分量、按窗口筛选。
 const riversRaw = await cached(
   "rivers.json",
-  () => `[out:json][timeout:180];way["waterway"="river"]["name"="柳江"](${FETCH_BBOX});out body geom;`,
+  () => `[out:json][timeout:180];way["waterway"="river"](${FETCH_BBOX});out body geom;`,
   refetch
 );
 
@@ -445,7 +593,7 @@ const bridgesRaw = await cached(
   refetch
 );
 
-const chains = stitchRivers(riversRaw);
+const chains = stitchRivers(riversRaw, window);
 const rawNodes = chains.reduce((n, c) => n + c.length, 0);
 console.log(`stitched chains: ${chains.length}, raw nodes: ${rawNodes}`);
 
@@ -483,15 +631,35 @@ console.log(
     `${round(((fullExtent.maxZ - fullExtent.minZ) * METERS_PER_UNIT) / 1000)} km)`
 );
 
-const clipped = clipToWindow(rivers, window, CLIP_MARGIN).map((line) =>
+const selected = selectByWindow(rivers, window, WINDOW_TOUCH_MARGIN).map((line) =>
   extendEnds(line, round(RIVER_HALF_WIDTH_M / METERS_PER_UNIT) * 1.6)
 );
 console.log(
   `window ${window.minX}..${window.maxX} x ${window.minZ}..${window.maxZ} ` +
     `(${round(((window.maxX - window.minX) * METERS_PER_UNIT) / 1000)} km x ` +
     `${round(((window.maxZ - window.minZ) * METERS_PER_UNIT) / 1000)} km) -> ` +
-    `${clipped.length} polyline(s), ${clipped.reduce((n, r) => n + r.length, 0)} points`
+    `${selected.length} polyline(s), ${selected.reduce((n, r) => n + r.length, 0)} points`
 );
+
+// 不变量：任何折线端点都不应落在相机的可视范围内，否则画面里会出现断头的河道。
+const VIEW_REACH = 80;
+for (const line of selected) {
+  for (const [label, point] of [
+    ["head", line[0]],
+    ["tail", line[line.length - 1]]
+  ]) {
+    const nearWindow =
+      point[0] >= window.minX - VIEW_REACH &&
+      point[0] <= window.maxX + VIEW_REACH &&
+      point[1] >= window.minZ - VIEW_REACH &&
+      point[1] <= window.maxZ + VIEW_REACH;
+    if (nearWindow) {
+      console.warn(
+        `  warning: ${label} 端点 (${point[0]}, ${point[1]}) 距窗口不足 ${VIEW_REACH} 单位，可能露出断口`
+      );
+    }
+  }
+}
 
 const inWindow = bridges.filter(
   (b) =>
@@ -503,7 +671,7 @@ const inWindow = bridges.filter(
 console.log(`bridges inside window: ${inWindow.length}/${bridges.length}`);
 
 if (wantPreview) {
-  preview(clipped, inWindow, window);
+  preview(selected, inWindow, window);
 }
 
 const payload = {
@@ -516,9 +684,9 @@ const payload = {
   metersPerUnit: METERS_PER_UNIT,
   riverHalfWidth: round(RIVER_HALF_WIDTH_M / METERS_PER_UNIT),
   window,
-  clipMargin: CLIP_MARGIN,
+  windowTouchMargin: WINDOW_TOUCH_MARGIN,
   fullExtent,
-  rivers: clipped,
+  rivers: selected,
   bridges: inWindow
 };
 
