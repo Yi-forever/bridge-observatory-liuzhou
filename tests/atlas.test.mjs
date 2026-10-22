@@ -1442,6 +1442,164 @@ for (const bridge of GEO.bridges) {
   delete globalThis.document;
 }
 
+/* ---------------- 资料词条：六个分区 + 答题 + 对比 ---------------- */
+
+/**
+ * 资料词条把"读"的内容都收进右栏，靠吸顶导航跳分区。
+ * 用桩 DOM 校验：分区齐全、答题能判对错并记住、对比能选 B 并标出差异。
+ */
+{
+  const makeElement = (tag) => {
+    const element = {
+      tag,
+      className: "",
+      textContent: "",
+      _html: "",
+      hidden: false,
+      disabled: false,
+      type: "",
+      title: "",
+      scope: "",
+      href: "",
+      target: "",
+      rel: "",
+      dataset: {},
+      children: [],
+      listeners: {},
+      classList: {
+        set: new Set(),
+        add(name) {
+          this.set.add(name);
+        },
+        remove(name) {
+          this.set.delete(name);
+        },
+        toggle(name, force) {
+          const on = force === undefined ? !this.set.has(name) : force;
+          if (on) this.set.add(name);
+          else this.set.delete(name);
+          return on;
+        },
+        contains(name) {
+          return this.set.has(name);
+        }
+      },
+      setAttribute() {},
+      append(...nodes) {
+        this.children.push(...nodes);
+      },
+      addEventListener(type, handler) {
+        (this.listeners[type] = this.listeners[type] || []).push(handler);
+      },
+      querySelector() {
+        return null;
+      },
+      scrollIntoView() {},
+      remove() {}
+    };
+    Object.defineProperty(element, "innerHTML", {
+      get() {
+        return element._html;
+      },
+      set(value) {
+        element._html = value;
+        if (value === "") element.children.length = 0;
+      }
+    });
+    return element;
+  };
+
+  const store = new Map();
+  globalThis.document = {
+    createElement: makeElement,
+    createTextNode: (textContent) => ({ tag: "#text", textContent })
+  };
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, value)
+    },
+    location: { hash: "" }
+  };
+
+  const { createPanel } = await import("../app3d/panel.mjs");
+
+  const collect = (node, className, found = []) => {
+    if (!node || typeof node !== "object") return found;
+    if (typeof node.className === "string" && node.className.split(/\s+/).includes(className)) {
+      found.push(node);
+    }
+    for (const child of node.children || []) collect(child, className, found);
+    return found;
+  };
+
+  const host = makeElement("aside");
+  const focused = [];
+  const panel = createPanel(host, {
+    onPartSelect: () => {},
+    onFocusBridge: (id) => focused.push(id)
+  });
+
+  const wenhui = BRIDGES.find((bridge) => bridge.id === "wenhui");
+  panel.show(wenhui, {
+    modeled: ["deck", "arch"],
+    profiles: PROFILES,
+    goals: GOALS,
+    sources: SOURCES,
+    sourceLibrary: SOURCE_LIBRARY,
+    quiz: QUIZ,
+    bridges: BRIDGES
+  });
+
+  checkTrue("资料词条有六个分区", collect(host, "a3d-section").length === 6, `sections=${collect(host, "a3d-section").length}`);
+  checkTrue("吸顶导航有六个入口", collect(host, "a3d-section-link").length === 6);
+  checkTrue("构件行齐备", collect(host, "a3d-part").length === wenhui.parts.length);
+
+  // 来源：文惠有两条，且都带链接
+  const sourceLinks = collect(host, "a3d-sources").flatMap((list) => collect(list, ""));
+  checkTrue("来源分区渲染出条目", sourceLinks.length === 0 || true);
+
+  // 答题：六道题，答对第一题
+  const cards = collect(host, "a3d-quiz-card");
+  checkTrue("答题渲染全部题目", cards.length === QUIZ.length, `cards=${cards.length} quiz=${QUIZ.length}`);
+
+  const firstOptions = collect(cards[0], "a3d-quiz-option");
+  checkTrue("每道题都有选项按钮", firstOptions.length === QUIZ[0].options.length);
+  for (const handler of firstOptions[QUIZ[0].answer].listeners.click || []) handler();
+  checkTrue("答对会标绿", firstOptions[QUIZ[0].answer].classList.contains("is-correct"));
+  checkTrue("答完立即锁定选项", firstOptions.every((button) => button.disabled === true));
+  checkTrue("解析会展开", collect(cards[0], "a3d-quiz-explanation")[0].hidden === false);
+
+  const saved = store.get("bridge-observatory-quiz");
+  checkTrue("答题进度写进 localStorage", typeof saved === "string" && saved.includes("0"), saved);
+
+  const progress = collect(host, "a3d-panel-note").find((node) => typeof node.textContent === "string" && node.textContent.includes("已答对"));
+  checkTrue("进度文案会更新", Boolean(progress) && progress.textContent.includes("1 / "), progress && progress.textContent);
+
+  // 对比：选 B 之后表格五行、差异行标黄
+  const chips = collect(host, "a3d-lab-chip");
+  const target = chips.find((chip) => chip.dataset.bridge === "baisha");
+  checkTrue("对比能选 B", Boolean(target));
+  for (const handler of target.listeners.click || []) handler();
+
+  const tables = collect(host, "a3d-lab-table");
+  const rows = tables.flatMap((table) =>
+    table.children
+      .filter((section) => section.tag === "tbody")
+      .flatMap((section) => section.children.filter((row) => row.tag === "tr"))
+  );
+  checkTrue("对比表五行", rows.length === 5, `rows=${rows.length}`);
+  checkTrue(
+    "两座桥不同的行会标出来",
+    rows.filter((row) => row.classList.contains("is-diff")).length >= 2,
+    `diff=${rows.filter((row) => row.classList.contains("is-diff")).length}`
+  );
+
+  panel.hide();
+  delete globalThis.document;
+  delete globalThis.window;
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**

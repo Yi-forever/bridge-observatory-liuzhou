@@ -7,9 +7,16 @@
  *   - 列表视图中由 app.js 写入的旧格式 hash 与页内锚点，不会把用户拽进 3D。
  */
 
-import { BRIDGES, BRIDGE_BY_ID, PROFILES } from "./data.mjs";
+import {
+  BRIDGES,
+  BRIDGE_BY_ID,
+  GOALS,
+  PROFILES,
+  QUIZ,
+  SOURCES,
+  SOURCE_LIBRARY
+} from "./data.mjs";
 import { FORCE_LEGEND } from "./force-map.mjs";
-import { GOALS } from "./data.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
 import { createRouter, toHash } from "./state.mjs";
@@ -329,7 +336,15 @@ function applyPanel(state) {
     return;
   }
   const modeled = scene && scene.getPartIds ? scene.getPartIds(state.bridgeId) : [];
-  panel.show(bridge, { modeled });
+  panel.show(bridge, {
+    modeled,
+    profiles: PROFILES,
+    goals: GOALS,
+    sources: SOURCES,
+    sourceLibrary: SOURCE_LIBRARY,
+    quiz: QUIZ,
+    bridges: BRIDGES
+  });
 
   if (pendingPart && pendingPart.bridgeId === state.bridgeId) {
     if (scene && scene.highlightPart) {
@@ -569,6 +584,9 @@ function boot() {
       onPartSelect: (partId) => {
         const state = router ? router.current : null;
         if (state && state.view === "bridge") focusPart(state.bridgeId, partId);
+      },
+      onFocusBridge: (bridgeId) => {
+        if (scene && scene.focusBridge) scene.focusBridge(bridgeId);
       },
       onOpenLab: () => openLegacyLab()
     });
