@@ -16,8 +16,18 @@
 import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "./atlas.mjs";
 import { createLabels } from "./labels.mjs";
+import { getTheme } from "./theme.mjs";
 
 const TAU = Math.PI * 2;
+
+/** 阴影贴图边长。4096 在取景窗口上约 4 米/纹素；低端机可降到 2048。 */
+const SHADOW_MAP_SIZE = 4096;
+
+/** 阴影相机覆盖半径（世界单位）：足够罩住 54×96 的取景窗口，又不至于让纹素变粗。 */
+const SHADOW_SPAN = 84;
+
+/** 取景窗口中心的近似值，阴影相机与太阳目标都朝这里对齐。 */
+const SCENE_FOCUS = { x: -7, z: -4 };
 
 const HOME = {
   azimuth: 0,
@@ -52,6 +62,27 @@ function shortestAngle(from, to) {
   return from + delta;
 }
 
+/** 把主题里的三档天色画成一张竖向渐变贴图，按等距圆柱映射当天空用。 */
+function skyTexture(theme) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 256;
+  const context = canvas.getContext("2d");
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, theme.sky.zenith);
+  gradient.addColorStop(0.44, theme.sky.horizon);
+  gradient.addColorStop(0.56, theme.sky.horizon);
+  gradient.addColorStop(1, theme.sky.ground);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export async function createScene({ canvas, labelLayer, onPick }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -59,19 +90,63 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     powerPreference: "high-performance"
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  const theme = getTheme();
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x071a22);
-  scene.fog = new THREE.Fog(0x071a22, 180, 950);
+  const sky = skyTexture(theme);
+  scene.background = sky;
+  // 同一张天色也当环境贴图：亮场景里水面没有反射会像塑料片，
+  // 不引入任何外部图片，用天空自身就够了。
+  scene.environment = sky;
+  scene.fog = new THREE.Fog(theme.fog.color, theme.fog.near, theme.fog.far);
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 2600);
+  // near 必须贴着真实的最近距离：镜头最近只能到 4 单位（LIMITS.distanceMin），
+  // 原先的 0.05 比实际需要近了 80 倍，白白耗掉深度精度——河道分层只有 0.002–0.02 的
+  // 间距，在默认视角下（分辨率 0.027 单位）根本分不开，于是逐帧争抢深度、缝隙闪烁。
+  // 抬到 0.4 后精度提升约 8 倍，且没有几何会近到这个距离。
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.4, 2600);
 
-  scene.add(new THREE.HemisphereLight(0x9fd8e0, 0x08161c, 0.9));
-  const sun = new THREE.DirectionalLight(0xffd9b0, 1.15);
-  sun.position.set(120, 190, 90);
+  scene.add(
+    new THREE.HemisphereLight(
+      theme.lights.hemiSky,
+      theme.lights.hemiGround,
+      theme.lights.hemiIntensity
+    )
+  );
+  const sun = new THREE.DirectionalLight(theme.lights.sunColor, theme.lights.sunIntensity);
+  sun.position.set(
+    theme.lights.sunPosition.x,
+    theme.lights.sunPosition.y,
+    theme.lights.sunPosition.z
+  );
+  // 阴影相机只罩住取景窗口那一片。这是唯一有内容的区域：
+  // 若按 4 km 的地面来罩，每个纹素会粗到十几米，桥的影子糊成一团。
+  // 光照与几何都是静态的，阴影相机也固定不动，所以不存在阴影随镜头爬行的问题。
+  sun.castShadow = true;
+  const shadowSize = Math.min(SHADOW_MAP_SIZE, renderer.capabilities.maxTextureSize);
+  sun.shadow.mapSize.set(shadowSize, shadowSize);
+  const shadowCamera = sun.shadow.camera;
+  shadowCamera.left = -SHADOW_SPAN;
+  shadowCamera.right = SHADOW_SPAN;
+  shadowCamera.top = SHADOW_SPAN;
+  shadowCamera.bottom = -SHADOW_SPAN;
+  shadowCamera.near = 40;
+  shadowCamera.far = 620;
+  shadowCamera.updateProjectionMatrix();
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.06;
+  sun.target.position.set(SCENE_FOCUS.x, 0, SCENE_FOCUS.z);
+  scene.add(sun.target);
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(0x5f9fb0, 0.35);
-  fill.position.set(-110, 70, -90);
+  const fill = new THREE.DirectionalLight(theme.lights.fillColor, theme.lights.fillIntensity);
+  fill.position.set(
+    theme.lights.fillPosition.x,
+    theme.lights.fillPosition.y,
+    theme.lights.fillPosition.z
+  );
   scene.add(fill);
 
   const atlas = buildAtlas();
