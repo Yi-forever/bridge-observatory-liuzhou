@@ -24,6 +24,7 @@ namespace QiaojianLauncher
     /// 调试参数：
     ///   --no-launch   只起服务、不打开浏览器（自动化验收用）
     ///   --port=4173   指定起始端口
+    ///   --lan         绑定所有网卡，并把手机可访问的局域网地址弹窗显示出来
     /// </summary>
     internal static class Program
     {
@@ -58,6 +59,8 @@ namespace QiaojianLauncher
         {
             _root = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
             var noLaunch = Array.IndexOf(args, "--no-launch") >= 0;
+            // --lan：绑定所有网卡，让同一 Wi-Fi 下的手机/平板也能打开
+            var wantLan = Array.IndexOf(args, "--lan") >= 0;
             var startPort = 4173;
             foreach (var arg in args)
             {
@@ -74,7 +77,7 @@ namespace QiaojianLauncher
             {
                 try
                 {
-                    var candidate = new TcpListener(IPAddress.Loopback, port);
+                    var candidate = new TcpListener(wantLan ? IPAddress.Any : IPAddress.Loopback, port);
                     candidate.Start(64);
                     listener = candidate;
                     break;
@@ -94,13 +97,27 @@ namespace QiaojianLauncher
             var url = "http://127.0.0.1:" + port + "/";
             ThreadPool.QueueUserWorkItem(_ => AcceptLoop(listener));
 
+            var lanUrls = wantLan ? LanUrls(port) : new List<string>();
+
             if (noLaunch)
             {
                 Console.WriteLine(url);
+                foreach (var item in lanUrls) Console.WriteLine(item);
                 Console.Out.Flush();
                 // 调试模式：Ctrl+C 或父进程结束时退出
                 Thread.Sleep(Timeout.Infinite);
                 return 0;
+            }
+
+            if (wantLan)
+            {
+                // 手机要输入的地址必须看得见：单独开一个信息框，不阻塞主线程
+                var message = lanUrls.Count > 0
+                    ? "手机 / 平板打开下面任一地址（需与电脑在同一个 Wi-Fi）：\n\n" + string.Join("\n", lanUrls)
+                    : "没有找到可用的局域网地址。\n请确认电脑已连接 Wi-Fi 或网线，然后用 --lan 重新启动。";
+                var boxThread = new Thread(() => Info(message, "桥见柳州 · 手机访问"));
+                boxThread.IsBackground = true;
+                boxThread.Start();
             }
 
             var browser = FindBrowser();
@@ -133,6 +150,40 @@ namespace QiaojianLauncher
             process.WaitForExit();
             listener.Stop();
             return 0;
+        }
+
+        /// <summary>枚举可用局域网地址（过滤回环、169.254、198.18/19 假地址）。</summary>
+        private static List<string> LanUrls(int port)
+        {
+            var urls = new List<string>();
+            try
+            {
+                foreach (var address in Dns.GetHostAddresses(Dns.GetHostName()))
+                {
+                    if (address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    var text = address.ToString();
+                    if (text.StartsWith("127.") || text.StartsWith("169.254.")) continue;
+                    if (text.StartsWith("198.18.") || text.StartsWith("198.19.")) continue;
+                    urls.Add("http://" + text + ":" + port + "/");
+                }
+            }
+            catch
+            {
+                // 枚举失败就当没有局域网地址
+            }
+            return urls;
+        }
+
+        private static void Info(string message, string caption)
+        {
+            try
+            {
+                System.Windows.Forms.MessageBox.Show(message, caption, System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+            }
+            catch
+            {
+                Console.WriteLine(message);
+            }
         }
 
         private static void Fail(string message)

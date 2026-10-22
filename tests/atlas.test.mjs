@@ -1928,6 +1928,49 @@ for (const bridge of GEO.bridges) {
   );
 }
 
+/* ---------------- 移动端启动：局域网地址筛选 ---------------- */
+
+/**
+ * 手机要能打开，靠的是把服务绑到局域网地址上；而"列出来给用户抄"这一步很容易出错：
+ * 本机的 Clash 会造出 198.18.x.x 的假地址、DHCP 失败会有 169.254.x.x，
+ * 直接抄给用户就是"连不上"。这里锁住筛选与排序规则。
+ */
+{
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const { listLanAddresses, isUsableLanAddress } = require("../lan-addresses.js");
+
+  const fakeInterfaces = {
+    "soon network": [{ family: "IPv4", internal: false, address: "198.18.0.1" }],
+    "ZeroTier One": [{ family: "IPv4", internal: false, address: "10.141.12.28" }],
+    WLAN: [{ family: "IPv4", internal: false, address: "192.168.47.92" }],
+    Loopback: [{ family: "IPv4", internal: true, address: "127.0.0.1" }],
+    Ethernet: [{ family: "IPv4", internal: false, address: "169.254.3.4" }],
+    "Wi-Fi 2": [{ family: "IPv6", internal: false, address: "fe80::1" }]
+  };
+
+  const rows = listLanAddresses(fakeInterfaces);
+  const addresses = rows.map((row) => row.address);
+
+  checkTrue("过滤掉 Clash 假地址 198.18.x.x", !addresses.includes("198.18.0.1"), addresses.join(","));
+  checkTrue("过滤掉 169.254.x.x 自分配地址", !addresses.includes("169.254.3.4"));
+  checkTrue("过滤掉回环与 IPv6", !addresses.includes("127.0.0.1") && !addresses.some((item) => item.includes(":")));
+  checkTrue("保留真实局域网地址", addresses.includes("192.168.47.92"), addresses.join(","));
+  checkTrue("WLAN 排在最前（手机要抄的那个）", rows[0].address === "192.168.47.92", rows[0].address);
+  checkTrue("无线接口被标记为首选", rows[0].preferred === true);
+
+  checkTrue("isUsableLanAddress 认可局域网地址", isUsableLanAddress("192.168.1.5"));
+  checkTrue("isUsableLanAddress 拒绝回环", !isUsableLanAddress("127.0.0.1"));
+  checkTrue("isUsableLanAddress 拒绝假地址", !isUsableLanAddress("198.18.0.1"));
+  checkTrue("isUsableLanAddress 拒绝空值", !isUsableLanAddress(null));
+
+  // 服务端默认只绑回环，必须显式 --lan 才对外开放
+  const server = await (await import("node:fs/promises")).readFile(new URL("../server.js", import.meta.url), "utf8");
+  checkTrue("server.js 默认绑定回环", /wantLan \? "0\.0\.0\.0" : "127\.0\.0\.1"/.test(server));
+  checkTrue("server.js 支持 --lan", /--lan/.test(server) && /listLanAddresses\(\)/.test(server));
+  checkTrue("提供了 start-lan.bat", fs.existsSync(new URL("../start-lan.bat", import.meta.url)));
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**
