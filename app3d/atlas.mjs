@@ -57,14 +57,19 @@ const WATER_Y = 0.004;
 /** 桥墩向下埋入的深度：保证桥被选中抬起 0.12 时，墩底仍在水面之下看不见。 */
 const PIER_BASE = -0.25;
 
-const THEME = getTheme();
-
-/** 主题里的颜色是 CSS 字符串，three 的 color 参数两种都收，这里统一转成十六进制数值。 */
+/**
+ * 主题里只有纯数据；这里按传入的主题现算材质色。
+ *
+ * 早先是模块级常量，导致"换主题"只能靠重新 import——夜景接上以后
+ * 必须在运行时重建场景，所以改成参数一路传下去。
+ */
 const toHex = (value) => new THREE.Color(value).getHex();
 
-const COLOR = Object.fromEntries(
-  Object.entries(THEME.materials).map(([key, value]) => [key, toHex(value)])
-);
+function buildPalette(theme) {
+  return Object.fromEntries(
+    Object.entries(theme.materials).map(([key, value]) => [key, toHex(value)])
+  );
+}
 
 /* ------------------------------------------------------------------ *
  * 小工具
@@ -79,9 +84,9 @@ const COLOR = Object.fromEntries(
  * 返回双线性与三角面两个高度查询函数：场馆必须按地形高度落座，
  * 道路必须贴三角面（双线性在陡坡上与真实面最大差 0.24 单位）。
  */
-function createTerrain(root) {
+function createTerrain(root, theme) {
   const { cols, rows, step, minX, minZ, maxX, maxZ, unitMeters } = TERRAIN;
-  const exaggeration = THEME.terrain.exaggeration;
+  const exaggeration = theme.terrain.exaggeration;
 
   // base64 → Uint16（小端）
   const binary = atob(TERRAIN.data);
@@ -160,10 +165,10 @@ function createTerrain(root) {
   const position = geometry.attributes.position;
   const colors = new Float32Array(position.count * 3);
 
-  const basin = new THREE.Color(THEME.terrain.basin);
-  const slopeColor = new THREE.Color(THEME.terrain.slope);
-  const rock = new THREE.Color(THEME.terrain.rock);
-  const ridge = new THREE.Color(THEME.terrain.ridge);
+  const basin = new THREE.Color(theme.terrain.basin);
+  const slopeColor = new THREE.Color(theme.terrain.slope);
+  const rock = new THREE.Color(theme.terrain.rock);
+  const ridge = new THREE.Color(theme.terrain.ridge);
   const scratch = new THREE.Color();
 
   for (let i = 0; i < position.count; i += 1) {
@@ -197,6 +202,7 @@ function createTerrain(root) {
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
+    name: "terrain",
     vertexColors: true,
     flatShading: true,
     roughness: 0.95,
@@ -1453,9 +1459,10 @@ const BUILDERS = {
  * 建筑
  * ------------------------------------------------------------------ */
 
-function buildLabBuilding() {
+function buildLabBuilding(COLOR) {
   const group = new THREE.Group();
   const body = new THREE.MeshStandardMaterial({ color: COLOR.lab, roughness: 0.7 });
+  body.name = "lab";
   const glow = new THREE.MeshStandardMaterial({
     color: COLOR.glow,
     emissive: new THREE.Color(COLOR.glow),
@@ -1479,9 +1486,10 @@ function buildLabBuilding() {
   return { group, top: 1.8 };
 }
 
-function buildArchiveBuilding() {
+function buildArchiveBuilding(COLOR) {
   const group = new THREE.Group();
   const body = new THREE.MeshStandardMaterial({ color: COLOR.archive, roughness: 0.75 });
+  body.name = "archive";
   const trim = new THREE.MeshStandardMaterial({ color: 0xcbbfe0, roughness: 0.55 });
   const glow = new THREE.MeshStandardMaterial({
     color: COLOR.glow,
@@ -1510,7 +1518,17 @@ function buildArchiveBuilding() {
  * 场景装配
  * ------------------------------------------------------------------ */
 
-export function buildAtlas() {
+/**
+ * 构建整个场景内容。
+ *
+ * @param {{ theme?: string }} [options] theme 是主题 id（day / night）。
+ *   夜景要能运行时切换，所以主题不再由模块级常量决定；换主题 = 重建一次场景，
+ *   走的是同一条代码路径，不会留下半套旧颜色。
+ */
+export function buildAtlas(options = {}) {
+  const theme = getTheme(options.theme);
+  const THEME = theme; // 兼容函数内既有写法
+  const COLOR = buildPalette(theme);
   const root = new THREE.Group();
   const pickables = [];
   const bridges = new Map();
@@ -1524,7 +1542,9 @@ export function buildAtlas() {
   const depth = viewWindow.maxZ - viewWindow.minZ;
 
   const concrete = new THREE.MeshStandardMaterial({ color: COLOR.concrete, roughness: 0.9 });
+  concrete.name = "concrete";
   const deckMaterial = new THREE.MeshStandardMaterial({ color: COLOR.deck, roughness: 0.8 });
+  deckMaterial.name = "deck";
 
   // 地面：地形网格 + 外接平地裙边
   //
@@ -1537,12 +1557,13 @@ export function buildAtlas() {
   const groundMinZ = Math.min(viewWindow.minZ, extent.minZ) - GROUND_MARGIN;
   const groundMaxZ = Math.max(viewWindow.maxZ, extent.maxZ) + GROUND_MARGIN;
 
-  const terrain = createTerrain(root);
+  const terrain = createTerrain(root, theme);
   const terrainHeightAt = terrain.heightAt;
   const terrainSurfaceAt = terrain.surfaceHeightAt;
 
   const frameMaterial = new THREE.MeshStandardMaterial({
-    color: toHex(THEME.terrain.basin),
+    name: "frame",
+    color: toHex(theme.terrain.basin),
     roughness: 1,
     metalness: 0
   });
@@ -1571,9 +1592,10 @@ export function buildAtlas() {
   const waterMeshes = [];
 
   const waterMaterial = new THREE.MeshStandardMaterial({
+    name: "water",
     color: COLOR.water,
-    roughness: THEME.water.roughness,
-    metalness: THEME.water.metalness,
+    roughness: theme.water.roughness,
+    metalness: theme.water.metalness,
     side: THREE.DoubleSide,
     // 与地面同高，靠深度偏移稳定压在地面之上（贴花），
     // 不靠抬高几何来分胜负——抬高会在掠射角看到缝隙。
@@ -1594,10 +1616,12 @@ export function buildAtlas() {
     const meta = BRIDGES.find((item) => item.id === geoBridge.id);
     if (!meta) continue;
 
+    // 夜景里桥得"亮起来"：自发光基线抬高，白天回到 0.12。
+    // 强调（选中/悬停）仍在此基础上叠加，见 emphasisFor()。
     const accent = new THREE.MeshStandardMaterial({
       color: new THREE.Color(meta.accent),
       emissive: new THREE.Color(meta.accent),
-      emissiveIntensity: 0.12,
+      emissiveIntensity: theme.id === "night" ? 0.42 : 0.12,
       roughness: 0.55,
       metalness: 0.12
     });
@@ -1740,7 +1764,7 @@ export function buildAtlas() {
 
     const spot = findVenueSpot(origin, fits) || origin;
 
-    const model = spec.builder();
+    const model = spec.builder(COLOR);
     const group = new THREE.Group();
     group.add(model.group);
     group.position.set(spot[0], terrainSurfaceAt(spot[0], spot[1]), spot[1]);
@@ -1777,20 +1801,63 @@ export function buildAtlas() {
   let selection = { view: "atlas", bridgeId: null };
   let hoveredKey = null;
 
+  // 自发光基线：白天 0.12，夜景 0.42（桥像被泛光灯照着）。
+  // 强调（选中/悬停）在此基础上叠加，换主题时由 setGlowBase 更新。
+  let glowBase = theme.id === "night" ? 0.42 : 0.12;
+
   // 构件高亮：复用构件几何建一层半透明"幽灵"，只加材质不加顶点。
   // 直接用材质改发光是不行的——同一材质被多个构件共用，改一个会亮一片。
-  const highlightMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffe6b0,
-    emissive: new THREE.Color(0xffcf6a),
-    emissiveIntensity: 0.9,
-    roughness: 0.4,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.55,
-    depthWrite: false,
-    side: THREE.DoubleSide
-  });
+  const highlightMaterials = {
+    select: new THREE.MeshStandardMaterial({
+      color: 0xffe6b0,
+      emissive: new THREE.Color(0xffcf6a),
+      emissiveIntensity: 0.9,
+      roughness: 0.4,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    }),
+    // 受力演示用玫红，和"我点中了"的琥珀区分开
+    force: new THREE.MeshStandardMaterial({
+      color: 0xff9db2,
+      emissive: new THREE.Color(0xff5f86),
+      emissiveIntensity: 1.05,
+      roughness: 0.45,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    })
+  };
   let highlighted = { bridgeId: null, partId: null, meshes: [] };
+
+  /**
+   * 拆解的竖向位移（单位：世界单位，1 = 100 m）。
+   * 规律：下部结构原地或下沉，桥面抬升，上部承重构件抬得最高——
+   * 这样一眼能看出"谁压在谁上面"。
+   */
+  const EXPLODE_OFFSET = {
+    foundation: -0.06,
+    support: -0.06,
+    pier: 0,
+    abutment: 0,
+    bearing: 0.02,
+    deck: 0.1,
+    girder: 0.07,
+    "box-girder": 0.07,
+    hanger: 0.14,
+    anchor: 0.12,
+    cable: 0.18,
+    ring: 0.18,
+    arch: 0.2,
+    gallery: 0.14,
+    pavilion: 0.24
+  };
+  const explodeTargets = new Map(); // mesh -> 目标 y
+  let explodedBridge = null;
 
   /** 清除当前构件高亮。 */
   function clearPartHighlight() {
@@ -1804,15 +1871,16 @@ export function buildAtlas() {
    * 高亮某个构件。
    * @returns {{id: string, label: string}|null} 命中的构件（找不到则为 null）
    */
-  function highlightPart(bridgeId, partId) {
+  function highlightPart(bridgeId, partId, style = "select") {
     clearPartHighlight();
     if (!bridgeId || !partId) return null;
     const entry = bridges.get(bridgeId);
     const part = entry && entry.parts ? entry.parts.get(partId) : null;
     if (!part) return null;
+    const material = highlightMaterials[style] || highlightMaterials.select;
     const ghosts = [];
     for (const source of part.meshes) {
-      const ghost = new THREE.Mesh(source.geometry, highlightMaterial);
+      const ghost = new THREE.Mesh(source.geometry, material);
       ghost.userData.noPick = true;
       ghost.castShadow = false;
       ghost.receiveShadow = false;
@@ -1839,7 +1907,7 @@ export function buildAtlas() {
       const emphasis = emphasisFor(id);
       entry.group.scale.setScalar(emphasis.scale);
       entry.group.position.y = emphasis.lift;
-      entry.accent.emissiveIntensity = emphasis.glow;
+      entry.accent.emissiveIntensity = glowBase + emphasis.glow;
       entry.marker.material.opacity = emphasis.ring;
     }
     for (const [id, entry] of buildings) {
@@ -1850,6 +1918,47 @@ export function buildAtlas() {
 
   function setSelection(next) {
     selection = { view: next.view, bridgeId: next.bridgeId };
+    apply();
+  }
+
+  /**
+   * 打开/关闭某座桥的分层拆解。
+   * 只改网格的 position.y，几何本身不动，所以关掉就能精确复位。
+   */
+  function setExploded(bridgeId) {
+    explodeTargets.clear();
+    explodedBridge = bridgeId || null;
+    if (!explodedBridge) return [];
+    const entry = bridges.get(explodedBridge);
+    if (!entry || !entry.parts) return [];
+    const moved = [];
+    for (const [partId, part] of entry.parts) {
+      const offset = EXPLODE_OFFSET[partId];
+      if (!offset) continue;
+      for (const mesh of part.meshes) explodeTargets.set(mesh, offset);
+      moved.push(partId);
+    }
+    return moved;
+  }
+
+  /** 每帧推进拆解动画（指数逼近，帧率无关）。 */
+  function updateExplode(damping = 0.16) {
+    // 全部网格先回收：未在 targets 里的要回原位
+    for (const entry of bridges.values()) {
+      if (!entry.parts) continue;
+      for (const part of entry.parts.values()) {
+        for (const mesh of part.meshes) {
+          const target = explodeTargets.get(mesh) || 0;
+          mesh.position.y += (target - mesh.position.y) * damping;
+          if (Math.abs(mesh.position.y - target) < 1e-4) mesh.position.y = target;
+        }
+      }
+    }
+  }
+
+  /** 换主题时调整桥梁自发光基线（不重建几何）。 */
+  function setGlowBase(value) {
+    glowBase = value;
     apply();
   }
 
@@ -1890,6 +1999,7 @@ export function buildAtlas() {
   return {
     root,
     pickables,
+    theme: { id: theme.id, label: theme.label, night: theme.id === "night" },
     bridges,
     buildings,
     labels: labelItems,
@@ -1900,6 +2010,10 @@ export function buildAtlas() {
     window: viewWindow,
     setSelection,
     setHover,
+    setGlowBase,
+    setExploded,
+    updateExplode,
+    explodeOffsets: EXPLODE_OFFSET,
     highlightPart,
     clearPartHighlight,
     get hovered() {

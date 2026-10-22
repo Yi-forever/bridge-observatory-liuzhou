@@ -621,7 +621,13 @@
 
     <!-- ===== 3D 外壳（M0）===== -->
     <div class="app3d" id="app3d" hidden>
-      <canvas class="app3d-canvas" id="sceneCanvas" role="img" aria-label="柳江 3D 城市场景"></canvas>
+      <canvas
+        class="app3d-canvas"
+        id="sceneCanvas"
+        role="img"
+        tabindex="0"
+        aria-label="柳江 3D 城市场景。方向键环视，加减号缩放，Home 复位，回车打开所选构件。"
+      ></canvas>
       <div class="app3d-vignette" aria-hidden="true"></div>
       <div class="app3d-labels" id="sceneLabels" aria-hidden="true"></div>
 
@@ -643,12 +649,18 @@
           <a class="app3d-nav-item" data-nav="atlas" href="#atlas">城市总览</a>
           <a class="app3d-nav-item" data-nav="lab" href="#lab">结构实验室</a>
           <a class="app3d-nav-item" data-nav="archive" href="#archive">档案馆</a>
+          <div class="a3d-modes" role="group" aria-label="显示模式">
+            <button class="a3d-mode is-active" type="button" data-mode="structure" aria-pressed="true">结构</button>
+            <button class="a3d-mode" type="button" data-mode="force" aria-pressed="false">受力</button>
+            <button class="a3d-mode" type="button" data-mode="night" aria-pressed="false">夜景</button>
+          </div>
           <button
-            class="app3d-ghost app3d-ghost--pending"
-            id="btnTheme"
+            class="app3d-ghost"
+            id="btnExplode"
             type="button"
-            title="白天是当前配色；夜景模式还在制作中"
-          >昼夜<span class="app3d-pending">开发中</span></button>
+            aria-pressed="false"
+            title="把结构按构件分层拉开"
+          >拆解</button>
           <button class="app3d-ghost" id="btnResetView" type="button">重置视角</button>
           <button class="app3d-ghost" id="btnBrowse" type="button">列表视图</button>
         </nav>

@@ -50,6 +50,21 @@ const FOCUS = {
 
 const CLICK_THRESHOLD = 6;
 
+/**
+ * 力流演示的教学顺序：桥面 → 中间承重构件 → 墩 / 座 / 基础。
+ *
+ * 这不是严格的力学路径（连续体系里荷载是多跨共同分担的），
+ * 而是 2D 章节里"桥面 → 吊杆 → 拱肋 → 拱座"那条讲解线的 3D 版。
+ * 构件 id 必须与 app3d/bridges.data.mjs 的 parts[].id 对得上，测试会校验。
+ */
+export const FORCE_FLOW = {
+  liujiang: ["deck", "girder", "pier", "foundation"],
+  wenhui: ["deck", "hanger", "arch", "abutment"],
+  wenchang: ["deck", "box-girder", "pier", "bearing"],
+  baisha: ["deck", "cable", "ring", "anchor"],
+  fenghuangling: ["deck", "gallery", "pavilion", "pier"]
+};
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -83,7 +98,7 @@ function skyTexture(theme) {
   return texture;
 }
 
-export async function createScene({ canvas, labelLayer, onPick }) {
+export async function createScene({ canvas, labelLayer, onPick, onPartFocus }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -93,10 +108,11 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  const theme = getTheme();
+  // 主题是可变状态：夜景在运行时切换，不重建几何（见 applyTheme）
+  let theme = getTheme();
 
   const scene = new THREE.Scene();
-  const sky = skyTexture(theme);
+  let sky = skyTexture(theme);
   scene.background = sky;
   // 同一张天色也当环境贴图：亮场景里水面没有反射会像塑料片，
   // 不引入任何外部图片，用天空自身就够了。
@@ -109,13 +125,12 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   // 抬到 0.4 后精度提升约 8 倍，且没有几何会近到这个距离。
   const camera = new THREE.PerspectiveCamera(45, 1, 0.4, 2600);
 
-  scene.add(
-    new THREE.HemisphereLight(
-      theme.lights.hemiSky,
-      theme.lights.hemiGround,
-      theme.lights.hemiIntensity
-    )
+  const hemi = new THREE.HemisphereLight(
+    theme.lights.hemiSky,
+    theme.lights.hemiGround,
+    theme.lights.hemiIntensity
   );
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(theme.lights.sunColor, theme.lights.sunIntensity);
   sun.position.set(
     theme.lights.sunPosition.x,
@@ -149,8 +164,69 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   );
   scene.add(fill);
 
-  const atlas = buildAtlas();
+  const atlas = buildAtlas({ theme: theme.id });
   scene.add(atlas.root);
+
+  /**
+   * 切换主题（day / night）。
+   *
+   * 不重建几何：天色、雾、三盏灯重新取值，材质按 name 查 theme.materials 重上色。
+   * 地形是顶点色，靠压暗 material.color 收光；桥梁自发光基线交给 atlas.setGlowBase。
+   */
+  function applyTheme(themeId) {
+    const next = getTheme(themeId);
+    if (next.id === theme.id) return next.id;
+    theme = next;
+
+    if (sky) sky.dispose();
+    sky = skyTexture(next);
+    scene.background = sky;
+    scene.environment = sky;
+    scene.fog.color.set(next.fog.color);
+    scene.fog.near = next.fog.near;
+    scene.fog.far = next.fog.far;
+
+    hemi.color.set(next.lights.hemiSky);
+    hemi.groundColor.set(next.lights.hemiGround);
+    hemi.intensity = next.lights.hemiIntensity;
+
+    sun.color.set(next.lights.sunColor);
+    sun.intensity = next.lights.sunIntensity;
+    sun.position.set(
+      next.lights.sunPosition.x,
+      next.lights.sunPosition.y,
+      next.lights.sunPosition.z
+    );
+
+    fill.color.set(next.lights.fillColor);
+    fill.intensity = next.lights.fillIntensity;
+    fill.position.set(
+      next.lights.fillPosition.x,
+      next.lights.fillPosition.y,
+      next.lights.fillPosition.z
+    );
+
+    const night = next.id === "night";
+    atlas.root.traverse((object) => {
+      if (!object.isMesh) return;
+      const material = object.material;
+      if (!material || Array.isArray(material)) return;
+      if (material.name === "terrain") {
+        // 顶点色不能逐点重算，整体压暗即可
+        material.color.set(night ? "#5b615b" : "#ffffff");
+        return;
+      }
+      if (material.name === "water") {
+        material.roughness = next.water.roughness;
+        material.metalness = next.water.metalness;
+      }
+      const hex = next.materials[material.name];
+      if (hex) material.color.set(hex);
+    });
+
+    atlas.setGlowBase(night ? 0.42 : 0.12);
+    return next.id;
+  }
 
   const homeTarget = new THREE.Vector3(atlas.center.x, 0, atlas.center.z);
 
@@ -170,6 +246,46 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     target: homeTarget.clone(),
     goalTarget: homeTarget.clone()
   };
+
+  /* ---------------- 力流演示（mode = force） ---------------- */
+
+  // 顺序表在模块级 FORCE_FLOW（测试要校验其中的构件 id）
+  /** 每一步停留时间（秒）。慢一点才看得清，也方便讲解时停顿。 */
+  const FORCE_STEP_SECONDS = 1.6;
+
+  let force = { bridgeId: null, order: [], index: -1, elapsed: 0 };
+
+  function stopForce() {
+    if (force.bridgeId) atlas.clearPartHighlight();
+    force = { bridgeId: null, order: [], index: -1, elapsed: 0 };
+    if (onPartFocus) onPartFocus(null, null, null);
+  }
+
+  function startForce(bridgeId) {
+    const order = FORCE_FLOW[bridgeId];
+    if (!order || order.length === 0) {
+      stopForce();
+      return;
+    }
+    force = { bridgeId, order, index: -1, elapsed: FORCE_STEP_SECONDS };
+  }
+
+  function stepForce() {
+    force.index = (force.index + 1) % force.order.length;
+    const partId = force.order[force.index];
+    const hit = atlas.highlightPart(force.bridgeId, partId, "force");
+    if (onPartFocus) {
+      onPartFocus(force.bridgeId, hit ? partId : null, hit ? hit.label : null);
+    }
+  }
+
+  function updateForce(delta) {
+    if (!force.bridgeId) return;
+    force.elapsed += delta;
+    if (force.elapsed < FORCE_STEP_SECONDS) return;
+    force.elapsed = 0;
+    stepForce();
+  }
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -293,11 +409,37 @@ export async function createScene({ canvas, labelLayer, onPick }) {
 
   /* ---------------- 指针事件 ---------------- */
 
+  /** 正在按下的指针（双指捏合要靠它算两指距离）。 */
+  const activePointers = new Map();
+  let pinch = null;
+
+  function pointerSpread() {
+    const points = [...activePointers.values()];
+    if (points.length < 2) return null;
+    return {
+      distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+      midX: (points[0].x + points[1].x) / 2,
+      midY: (points[0].y + points[1].y) / 2
+    };
+  }
+
   function onPointerDown(event) {
     dragging = true;
     dragDistance = 0;
     lastX = event.clientX;
     lastY = event.clientY;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activePointers.size === 2) {
+      const spread = pointerSpread();
+      if (spread && spread.distance > 0) {
+        // 双指一旦开始捏合，就以两指中点下方的世界点为不动点
+        pinch = {
+          distance: spread.distance,
+          anchor: pointUnderPointer(spread.midX, spread.midY)
+        };
+        dragDistance = CLICK_THRESHOLD; // 捏合不算点击，别在松手时触发拾取
+      }
+    }
     try {
       canvas.setPointerCapture(event.pointerId);
     } catch {
@@ -307,6 +449,22 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   }
 
   function onPointerMove(event) {
+    if (activePointers.has(event.pointerId)) {
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    // 双指捏合优先于旋转
+    if (pinch && activePointers.size >= 2) {
+      const spread = pointerSpread();
+      if (spread && spread.distance > 1) {
+        if (!pinch.anchor) pinch.anchor = pointUnderPointer(spread.midX, spread.midY);
+        zoomBy(pinch.distance / spread.distance, pinch.anchor);
+        pinch.distance = spread.distance;
+        dragDistance = CLICK_THRESHOLD;
+      }
+      return;
+    }
+
     if (dragging) {
       const dx = event.clientX - lastX;
       const dy = event.clientY - lastY;
@@ -331,6 +489,8 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   function onPointerUp(event) {
     const wasDragging = dragging;
     dragging = false;
+    activePointers.delete(event.pointerId);
+    if (activePointers.size < 2) pinch = null;
     try {
       canvas.releasePointerCapture(event.pointerId);
     } catch {
@@ -351,31 +511,84 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     canvas.style.cursor = "grab";
   }
 
+  /**
+   * 按比例缩放，anchor 是屏幕不动点的世界坐标。
+   *
+   * 以该点为不动点缩放：目标点 T ← A + (T - A)·scale，
+   * 于是相机 C ← A + (C - A)·scale，即相机沿"锚点→相机"这条线移动，
+   * 视线方向不变，因此锚点在屏幕上分毫不动。
+   * 滚轮与双指捏合共用这一套。
+   */
+  function zoomBy(scale, anchor) {
+    const nextDistance = clamp(
+      controls.goalDistance * scale,
+      LIMITS.distanceMin,
+      LIMITS.distanceMax
+    );
+    const realScale = nextDistance / controls.goalDistance;
+    if (realScale === 1) return;
+    if (anchor) controls.goalTarget.sub(anchor).multiplyScalar(realScale).add(anchor);
+    controls.goalDistance = nextDistance;
+  }
+
   function onWheel(event) {
     event.preventDefault();
     // 乘法缩放：近处步长细、远处步长粗。线性缩放在 4～420 这个跨度里
     // 会变成"远处滚半天不动、近处一下就撞墙"。
-    const factor = Math.pow(1.0022, event.deltaY);
-    const nextDistance = clamp(
-      controls.goalDistance * factor,
-      LIMITS.distanceMin,
-      LIMITS.distanceMax
-    );
-    const scale = nextDistance / controls.goalDistance;
-    if (scale === 1) return;
+    zoomBy(Math.pow(1.0022, event.deltaY), pointUnderPointer(event.clientX, event.clientY));
+  }
 
-    const anchor = pointUnderPointer(event.clientX, event.clientY);
-    if (anchor) {
-      // 以光标下的世界点为不动点缩放：
-      // 目标点 T ← A + (T - A)·scale，于是相机 C ← A + (C - A)·scale，
-      // 即相机沿"光标点→相机"这条线移动，视线方向不变，
-      // 因此光标下的那个点在屏幕上分毫不动。
-      controls.goalTarget.sub(anchor).multiplyScalar(scale).add(anchor);
+  /**
+   * 键盘镜头。画布带 tabindex="0"，聚焦后可用：
+   *   方向键 环视 / +/- 缩放 / Home 复位。
+   * 与鼠标一样走 goal*，由阻尼动画负责过渡。
+   */
+  function onKeyDown(event) {
+    const step = 0.12;
+    const polarStep = 0.06;
+    let handled = true;
+    switch (event.key) {
+      case "ArrowLeft":
+      case "a":
+      case "A":
+        controls.goalAzimuth -= step;
+        break;
+      case "ArrowRight":
+      case "d":
+      case "D":
+        controls.goalAzimuth += step;
+        break;
+      case "ArrowUp":
+      case "w":
+      case "W":
+        controls.goalPolar = clamp(controls.goalPolar - polarStep, LIMITS.polarMin, LIMITS.polarMax);
+        break;
+      case "ArrowDown":
+      case "s":
+      case "S":
+        controls.goalPolar = clamp(controls.goalPolar + polarStep, LIMITS.polarMin, LIMITS.polarMax);
+        break;
+      case "+":
+      case "=":
+      case "PageUp":
+        zoomBy(0.86, null);
+        break;
+      case "-":
+      case "_":
+      case "PageDown":
+        zoomBy(1.16, null);
+        break;
+      case "Home":
+        resetView();
+        break;
+      default:
+        handled = false;
     }
-    controls.goalDistance = nextDistance;
+    if (handled) event.preventDefault();
   }
 
   canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("keydown", onKeyDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
   canvas.addEventListener("pointercancel", onPointerUp);
@@ -386,6 +599,23 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   /* ---------------- 状态 ---------------- */
 
   function setState(state) {
+    // 夜景：mode === "night" 时整场切成夜色主题（材质/灯光/天色一起换）
+    applyTheme(state.mode === "night" ? "night" : "day");
+
+    // 受力演示：只在单桥视图、且 mode === "force" 时跑
+    const wantForce = state.mode === "force" && state.view === "bridge" ? state.bridgeId : null;
+    if (wantForce) {
+      if (force.bridgeId !== wantForce) {
+        stopForce();
+        startForce(wantForce);
+      }
+    } else if (force.bridgeId) {
+      stopForce();
+    }
+
+    // 分层拆解：爆炸视图只对单桥
+    atlas.setExploded(state.exploded && state.view === "bridge" ? state.bridgeId : null);
+
     atlas.setSelection({ view: state.view, bridgeId: state.bridgeId });
 
     if (state.view === "bridge" && state.bridgeId) {
@@ -428,9 +658,16 @@ export async function createScene({ canvas, labelLayer, onPick }) {
   let frameHandle = null;
   let running = false;
 
-  function frame() {
+  let lastFrameTime = 0;
+
+  function frame(now = 0) {
+    const delta = lastFrameTime ? Math.min(0.1, (now - lastFrameTime) / 1000) : 0;
+    lastFrameTime = now;
+
     updateCamera();
     updateHover();
+    updateForce(delta);
+    atlas.updateExplode(0.16);
     renderer.render(scene, camera);
     if (labels) {
       labels.update(camera, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
@@ -458,6 +695,7 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     stop();
     window.removeEventListener("resize", resize);
     canvas.removeEventListener("pointerdown", onPointerDown);
+  canvas.removeEventListener("keydown", onKeyDown);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerup", onPointerUp);
     canvas.removeEventListener("pointercancel", onPointerUp);
@@ -476,6 +714,16 @@ export async function createScene({ canvas, labelLayer, onPick }) {
     resize,
     dispose,
     resetView,
+    /** 手动开始/结束受力演示；传 null 结束。 */
+    setForceFlow: (bridgeId) => {
+      stopForce();
+      if (bridgeId) startForce(bridgeId);
+    },
+    /** 主动切换主题（day / night），返回最终生效的主题 id。 */
+    applyTheme,
+    get themeId() {
+      return theme.id;
+    },
     /** 高亮某个构件；返回 { id, label } 或 null。 */
     highlightPart: (bridgeId, partId) => atlas.highlightPart(bridgeId, partId),
     clearPartHighlight: () => atlas.clearPartHighlight(),

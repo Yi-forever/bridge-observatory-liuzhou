@@ -4,8 +4,9 @@
  * 约定：
  * - 这里只放**纯数据**（颜色字符串、数值），不创建 three 对象，
  *   这样 `atlas.mjs` 可以在 Node 测试里被导入，不需要 DOM 或 WebGL。
- * - 白天（day）是当前唯一生效的主题；夜晚（night）只是先把结构和取值占住，
- *   等画面、灯光、水面反射方案确定后再接上，避免到时候再拆一轮材质代码。
+ * - day 与 night 都已生效：scene.applyTheme() 会按这里的取值换天色、雾、三盏灯，
+ *   并按材质 name 重上色（concrete / deck / water / frame / lab / archive / terrain）。
+ *   新增材质时记得给它一个 name，否则夜景不会跟着变色。
  */
 
 export const THEMES = {
@@ -67,7 +68,7 @@ export const THEMES = {
   night: {
     id: "night",
     label: "柳江夜色",
-    ready: false,
+    ready: true,
     sky: {
       zenith: "#0b1a2b",
       horizon: "#1d3b52",
@@ -97,7 +98,6 @@ export const THEMES = {
       archive: "#4a4258",
       glow: "#ffcf9a"
     },
-    // 夜景暂未启用，但地形配色先占住：将来激活时 atlas 不会因为缺 terrain 而崩
     terrain: {
       basin: "#1a2320",
       slope: "#26301f",
@@ -110,7 +110,7 @@ export const THEMES = {
   }
 };
 
-/** 当前生效的主题：白天为主，夜晚尚未启用（见 docs/产品形态与分发策略.md）。 */
+/** 默认主题：进场景是白天，夜景由状态里的 mode=night 触发。 */
 export const DEFAULT_THEME = "day";
 
 export function getTheme(id = DEFAULT_THEME) {

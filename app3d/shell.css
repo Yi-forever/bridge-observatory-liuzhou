@@ -816,3 +816,61 @@ body.app3d-active {
     max-height: 58vh;
   }
 }
+
+/* 三态显示模式：结构 / 受力 / 夜景 */
+.a3d-modes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 216, 224, 0.22);
+  background: rgba(9, 32, 41, 0.5);
+}
+
+.a3d-mode {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(214, 234, 236, 0.72);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.a3d-mode:hover,
+.a3d-mode:focus-visible {
+  background: rgba(159, 216, 224, 0.12);
+  color: #eaf6f7;
+}
+
+.a3d-mode.is-active {
+  background: rgba(159, 216, 224, 0.24);
+  color: #ffffff;
+}
+
+/* 拆解按钮的按下态 */
+.app3d-ghost[aria-pressed="true"] {
+  background: rgba(159, 216, 224, 0.24);
+  border-color: rgba(159, 216, 224, 0.6);
+  color: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .a3d-modes {
+    order: -1;
+  }
+  .a3d-mode {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+}
+
+/* 画布可聚焦（键盘镜头）：必须给出可见的焦点环，否则键盘用户不知道焦点在哪 */
+.app3d-canvas:focus-visible {
+  outline: 2px solid rgba(159, 216, 224, 0.8);
+  outline-offset: -5px;
+  border-radius: 2px;
+}

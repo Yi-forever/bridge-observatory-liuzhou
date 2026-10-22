@@ -887,6 +887,186 @@ for (const [id, entry] of atlas.buildings) {
   delete globalThis.document;
 }
 
+/* ---------------- 夜景主题 ---------------- */
+
+/**
+ * 主题参数化之后，日/夜走同一条构建路径，只有颜色与光照不同。
+ * 这里守住"夜不是换了个名字的白天"：关键材质色必须真的变了。
+ */
+{
+  const day = buildAtlas();
+  const night = buildAtlas({ theme: "night" });
+
+  checkTrue("夜间主题可用", night.theme.id === "night", night.theme.id);
+  checkTrue("夜间主题有名字", typeof night.theme.label === "string" && night.theme.label.length > 0);
+
+  const pickColor = (atlas, name) => {
+    let found = null;
+    atlas.root.traverse((object) => {
+      if (!object.isMesh) return;
+      if (object.material && object.material.name === name) found = object.material;
+    });
+    return found;
+  };
+
+  for (const name of ["concrete", "deck", "water", "lab", "archive", "frame"]) {
+    const dayMaterial = pickColor(day, name);
+    const nightMaterial = pickColor(night, name);
+    checkTrue(`白天有 ${name} 材质`, Boolean(dayMaterial));
+    checkTrue(`夜间有 ${name} 材质`, Boolean(nightMaterial));
+    if (dayMaterial && nightMaterial) {
+      checkTrue(
+        `${name} 在夜间换了颜色`,
+        dayMaterial.color.getHex() !== nightMaterial.color.getHex(),
+        `day=#${dayMaterial.color.getHexString()} night=#${nightMaterial.color.getHexString()}`
+      );
+    }
+  }
+
+  // 水面反射参数也要跟着换
+  const dayWater = pickColor(day, "water");
+  const nightWater = pickColor(night, "water");
+  if (dayWater && nightWater) {
+    checkTrue(
+      "夜间水面金属度更高",
+      nightWater.metalness > dayWater.metalness,
+      `day=${dayWater.metalness} night=${nightWater.metalness}`
+    );
+  }
+}
+
+/* ---------------- 分层拆解 ---------------- */
+
+/**
+ * 拆解只动网格的 position.y，几何不动，所以关掉必须精确回到 0。
+ * 这里同时校验：拆解位移表覆盖到了每座桥的关键构件。
+ */
+{
+  const atlas = buildAtlas();
+  const offsets = atlas.explodeOffsets || {};
+
+  checkTrue("拆解位移表存在", Object.keys(offsets).length > 5, `keys=${Object.keys(offsets).length}`);
+  for (const [partId, offset] of Object.entries(offsets)) {
+    checkTrue(
+      `拆解位移 ${partId} 数值合理`,
+      typeof offset === "number" && Math.abs(offset) <= 0.4,
+      `offset=${offset}`
+    );
+  }
+
+  for (const [id] of atlas.bridges) {
+    const moved = atlas.setExploded(id);
+    checkTrue(
+      `${id} 至少三个构件参与拆解`,
+      moved.length >= 3,
+      `moved=${moved.length} (${moved.join(",")})`
+    );
+    checkTrue(`${id} 的桥面参与拆解`, moved.includes("deck"), moved.join(","));
+  }
+
+  // 推进动画，确认真的动了
+  atlas.setExploded("wenhui");
+  for (let i = 0; i < 80; i += 1) atlas.updateExplode(0.3);
+  const archMesh = atlas.bridges.get("wenhui").parts.get("arch").meshes[0];
+  checkTrue("拆解会把构件抬起来", Math.abs(archMesh.position.y) > 0.05, `y=${archMesh.position.y.toFixed(3)}`);
+
+  // 关掉后必须复位
+  atlas.setExploded(null);
+  for (let i = 0; i < 80; i += 1) atlas.updateExplode(0.3);
+  checkTrue("关掉拆解后构件复位", Math.abs(archMesh.position.y) < 1e-3, `y=${archMesh.position.y.toFixed(4)}`);
+}
+
+/* ---------------- 受力演示：顺序表必须指向真实构件 ---------------- */
+
+/**
+ * FORCE_FLOW 是写死的一张表，最容易在"构件改名"时悄悄失效——
+ * 表里写了不存在的 partId，演示就会跳过一步而不报错。这里逐个校验。
+ */
+{
+  const { FORCE_FLOW } = await import("../app3d/scene.mjs");
+
+  checkTrue("受力演示覆盖五座桥", Object.keys(FORCE_FLOW).length === BRIDGES.length);
+
+  for (const bridge of BRIDGES) {
+    const order = FORCE_FLOW[bridge.id];
+    checkTrue(`${bridge.id} 有受力顺序`, Array.isArray(order) && order.length >= 3, `${order && order.length}`);
+    if (!Array.isArray(order)) continue;
+
+    const entry = atlas.bridges.get(bridge.id);
+    for (const partId of order) {
+      checkTrue(
+        `${bridge.id} 的受力步骤 ${partId} 在模型里存在`,
+        Boolean(entry && entry.parts && entry.parts.has(partId)),
+        entry && entry.parts ? `3D 里有：${[...entry.parts.keys()].join(",")}` : "无 parts"
+      );
+    }
+    checkTrue(
+      `${bridge.id} 的受力顺序从桥面开始`,
+      order[0] === "deck",
+      order[0]
+    );
+  }
+}
+
+/* ---------------- 地址栏状态往返 ---------------- */
+
+/**
+ * mode / explode 是"整场外观与拆解"的开关，必须对所有视图都写进 hash——
+ * 早先只对单桥视图生效，于是在总览点"夜景"会静默无效。
+ */
+{
+  const { toHash, parseHash, MODES } = await import("../app3d/state.mjs");
+
+  const cases = [];
+  for (const view of ["atlas", "lab", "archive", "browse"]) {
+    for (const mode of MODES) {
+      for (const exploded of [false, true]) {
+        cases.push({ view, bridgeId: null, mode, exploded, legacy: false });
+      }
+    }
+  }
+  for (const bridge of BRIDGES) {
+    for (const mode of MODES) {
+      cases.push({ view: "bridge", bridgeId: bridge.id, mode, exploded: false, legacy: false });
+    }
+  }
+
+  let mismatches = 0;
+  for (const input of cases) {
+    const hash = toHash(input);
+    const parsed = parseHash(hash);
+    const same =
+      parsed.view === input.view &&
+      parsed.bridgeId === input.bridgeId &&
+      parsed.mode === input.mode &&
+      parsed.exploded === input.exploded;
+    if (!same) {
+      mismatches += 1;
+      if (mismatches <= 3) {
+        console.log(`    ${hash} → ${JSON.stringify({ view: parsed.view, mode: parsed.mode, exploded: parsed.exploded })}`);
+      }
+    }
+  }
+  check("地址栏状态可无损往返", mismatches, 0);
+
+  // 夜景即使不在单桥视图也要进 hash
+  checkTrue(
+    "总览视图的夜景写进 hash",
+    toHash({ view: "atlas", bridgeId: null, mode: "night", exploded: false }) === "#atlas?mode=night",
+    toHash({ view: "atlas", bridgeId: null, mode: "night", exploded: false })
+  );
+  checkTrue(
+    "拆解在单桥视图写进 hash",
+    toHash({ view: "bridge", bridgeId: "baisha", mode: "structure", exploded: true }) ===
+      "#bridge/baisha?explode=1",
+    toHash({ view: "bridge", bridgeId: "baisha", mode: "structure", exploded: true })
+  );
+  checkTrue(
+    "非法 mode 回落为 structure",
+    parseHash("#bridge/baisha?mode=disco").mode === "structure"
+  );
+}
+
 /* ---------------- 合并几何体必须有法线 ---------------- */
 
 /**

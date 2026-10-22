@@ -22,6 +22,7 @@ const els = {
   status: document.getElementById("sceneStatus"),
   bridgeList: document.getElementById("sceneBridgeList"),
   panel: document.getElementById("scenePanel"),
+  btnExplode: document.getElementById("btnExplode"),
   btnBrowse: document.getElementById("btnBrowse"),
   btnReset: document.getElementById("btnResetView"),
   guide: document.getElementById("guideDialog"),
@@ -32,6 +33,7 @@ const els = {
 };
 
 const navItems = Array.from(document.querySelectorAll("[data-nav]"));
+const modeItems = Array.from(document.querySelectorAll("[data-mode]"));
 
 function detectWebGL() {
   try {
@@ -119,10 +121,17 @@ function describe(state) {
   if (state.view === "bridge") {
     const bridge = BRIDGE_BY_ID.get(state.bridgeId);
     if (bridge) {
+      let sub = `${bridge.year} 年 · ${bridge.type} · 点桥上的构件可以单独高亮，右侧资料卡会跟着定位。`;
+      if (state.mode === "force") {
+        sub = "力流演示：桥面 → 承重构件 → 墩座，逐级高亮（玫红），右侧资料卡同步讲解。";
+      } else if (state.mode === "night") {
+        sub = "柳江夜色：天色、灯光与水面换成夜间参数，桥体亮灯；点构件仍然可查。";
+      }
+      if (state.exploded) sub += " 已拆解：构件按层拉开，能看清谁压在谁上面。";
       return {
         kicker: `M2 / BRIDGE · ${bridge.order}`,
         title: bridge.name,
-        sub: `${bridge.year} 年 · ${bridge.type} · 点桥上的构件可以单独高亮，右侧资料卡会跟着定位。`
+        sub
       };
     }
   }
@@ -140,10 +149,16 @@ function describe(state) {
       sub: "建筑已就位 · 档案与答题建设中（M3）。可先切到列表视图使用现有对比与答题页面。"
     };
   }
+  const atlasSub =
+    state.mode === "force"
+      ? "选一座桥再切到「受力」，就会逐级演示荷载怎么往下传。"
+      : state.mode === "night"
+        ? "柳江夜色：拖动环视，滚轮以光标为中心缩放。"
+        : "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。";
   return {
     kicker: "M2 / CITY ATLAS",
     title: "柳江 · LIUJIANG",
-    sub: "真实河道与五桥位置（OpenStreetMap）。拖动可任意角度环视，滚轮以光标为中心缩放；点桥梁拉近看结构，点构件看它在受力里干什么。"
+    sub: atlasSub
   };
 }
 
@@ -243,7 +258,13 @@ function initScene() {
     const instance = await module.createScene({
       canvas: els.canvas,
       labelLayer: els.labels,
-      onPick: handlePick
+      onPick: handlePick,
+      // 受力演示每走一步，资料卡跟到那个构件
+      onPartFocus: (bridgeId, partId) => {
+        if (!panel) return;
+        if (partId) panel.focusPart(partId);
+        else if (bridgeId === null) panel.focusPart(null);
+      }
     });
     scene = instance;
     if (latestState) applyPanel(latestState);
@@ -325,6 +346,14 @@ function renderApp3d(state) {
   for (const item of navItems) {
     item.classList.toggle("is-active", item.dataset.nav === state.view);
   }
+  for (const item of modeItems) {
+    const active = (state.mode || "structure") === item.dataset.mode;
+    item.classList.toggle("is-active", active);
+    item.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  if (els.btnExplode) {
+    els.btnExplode.setAttribute("aria-pressed", state.exploded ? "true" : "false");
+  }
   if (els.bridgeList) {
     for (const link of els.bridgeList.querySelectorAll("a")) {
       const active = state.view === "bridge" && link.dataset.bridge === state.bridgeId;
@@ -383,6 +412,22 @@ function boot() {
   if (els.btnBrowse) {
     els.btnBrowse.addEventListener("click", () => {
       window.location.hash = "#browse";
+    });
+  }
+
+  for (const item of modeItems) {
+    item.addEventListener("click", () => {
+      const state = router ? router.current : null;
+      if (!state) return;
+      window.location.hash = toHash({ ...state, mode: item.dataset.mode });
+    });
+  }
+
+  if (els.btnExplode) {
+    els.btnExplode.addEventListener("click", () => {
+      const state = router ? router.current : null;
+      if (!state) return;
+      window.location.hash = toHash({ ...state, exploded: !state.exploded });
     });
   }
 

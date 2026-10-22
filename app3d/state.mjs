@@ -86,19 +86,25 @@ export function parseHash(hash = window.location.hash) {
   return { view: "atlas", bridgeId: null, mode: "structure", exploded: false, legacy: false };
 }
 
-/** 状态对象 → hash 字符串。 */
+/**
+ * 状态对象 → hash 字符串。
+ *
+ * mode / explode 对**所有视图**都要写进去：夜景是整场的外观，
+ * 在总览里也要能切——早先只在 bridge 视图带上参数，于是"在总览点夜景"点了没反应。
+ */
 export function toHash(state) {
   const view = VIEWS.includes(state.view) ? state.view : "atlas";
+  const params = new URLSearchParams();
+  if (state.mode && state.mode !== "structure") params.set("mode", state.mode);
+  if (state.exploded) params.set("explode", "1");
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
 
   if (view === "bridge" && state.bridgeId) {
-    const params = new URLSearchParams();
-    if (state.mode && state.mode !== "structure") params.set("mode", state.mode);
-    if (state.exploded) params.set("explode", "1");
-    const query = params.toString();
-    return `#bridge/${state.bridgeId}${query ? `?${query}` : ""}`;
+    return `#bridge/${state.bridgeId}${suffix}`;
   }
 
-  return `#${view}`;
+  return `#${view}${suffix}`;
 }
 
 export function sameState(a, b) {
