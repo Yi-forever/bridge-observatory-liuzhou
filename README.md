@@ -49,6 +49,18 @@
 node tools/build-launcher.mjs
 ```
 
+## 首次运行的安全提示
+
+两个 exe **没有数字签名**，所以可能出现 UAC「未知发布者」或 SmartScreen「Windows 已保护你的电脑」——这是未签名程序的正常现象，不是病毒告警。
+
+三种处理办法（详见 [docs/安全提示与签名说明.md](docs/安全提示与签名说明.md)）：
+
+1. **就地编译**（零成本，评委演示最稳）：`node tools/build-launcher.mjs` —— 本地生成的 exe 不带「来自网络」标记，通常不再触发提示；
+2. **解除锁定**：下载来的 ZIP 先执行 `Get-ChildItem *.exe | Unblock-File`；
+3. **签名**：OV 证书可去掉「未知发布者」，EV 证书或 Azure Trusted Signing 可同时获得 SmartScreen 信誉。
+
+文档里还附了两个 exe 的 SHA-256、三种提示的区别，以及本作品为「少触发系统提示」做的设计（启动不提权、只在点按钮时加一条防火墙规则、不联网、不驻留）。
+
 ## 手机上怎么打开
 
 **双击 `桥见柳州-手机访问.exe`**，手机连同一个 Wi-Fi，输入弹窗里的地址（形如 `http://192.168.47.92:4173`）。
@@ -84,34 +96,63 @@ Linux 下用 `start.sh`。推荐使用最新版 Microsoft Edge 或 Google Chrome
 可以直接分享指定桥梁、显示模式和拆解状态：
 
 ```text
-http://127.0.0.1:4173/#bridge=wenhui&mode=force&explode=1
+http://127.0.0.1:4173/#bridge/wenhui
+http://127.0.0.1:4173/#bridge/baisha?exp=1&step=2&load=0.5&colors=1&explode=1
+http://127.0.0.1:4173/?present=1     课堂投屏排版
+http://127.0.0.1:4173/?kiosk=1       展馆自助巡览
 ```
+
+旧格式 `#bridge=wenhui&mode=force&explode=1` 仍可解析并自动迁移到新地址，早期分享的链接不会失效。
 
 ## 技术实现
 
-- 原生HTML、CSS和JavaScript
-- 五种交互式SVG桥梁结构模型
-- CSS 3D视角旋转
-- Pointer Events拖动交互
-- localStorage探索记录
-- 响应式布局，已验证360—1440像素宽度
-- 首次使用引导与键盘可操作的视角控制
+- 纯前端：原生 HTML / CSS / ES Module，零构建、零后端
+- 三维：three.js 0.180.0（MIT，已 vendored 到 `vendor/three`），WebGL 2
+- 地理：柳江河道与江岸地形来自 OpenStreetMap（ODbL 1.0）+ 高程数据，1 场景单位 = 100 米
+- 五座桥按公开资料重建，构件级拾取（`partId` + 语义标签），高亮使用独立幽灵材质
+- 二维版保留完整功能（交互地图、构件讲解、力流、拆解、荷载、对比、知识挑战），三维不可用时自动回退
+- Pointer Events 拖动 + 滚轮锚点缩放 + 键盘镜头 + 触屏双指缩放
+- 状态全部写进地址栏，可分享、可刷新、可前进后退
+- localStorage：探索进度、答题记录、引导状态
+- 响应式布局，已验证 360—1440 像素宽度；移动端两个词条为可拖拽抽屉
+- `node tests/atlas.test.mjs`：**257 条自动断言**（几何间距、结构高度、数据一致性、交互接线、挠度换算恒等式、路由往返、面板渲染）
 
 ## 文件说明
 
-- `index.html`：页面结构与科普内容入口
-- `styles.css`：视觉系统、响应式布局和动效
-- `app.js`：桥梁数据、SVG结构模型、互动逻辑和知识问答
-- `server.js`：零依赖本地静态服务器
-- `桥见柳州.exe`：免安装启动器（内置静态服务 + Edge/Chrome 独立窗口，不需要 Node.js）
-- `tools/build-launcher.mjs`：重新编译启动器
-- `start.bat`：Windows 一键打开入口（需 Node.js 18+）
-- `presentation/build-deck.js`：12页路演PPT生成脚本
-- `docs/previews/`：网页与交互功能预览图
+**入口与启动**
+
+- `桥见柳州.exe`：本地版（只绑 127.0.0.1，本机独立窗口，不开放局域网、不改防火墙）
+- `桥见柳州-手机访问.exe`：局域网版（绑 0.0.0.0，只弹地址窗口，关窗即停）
+- `launcher/Program.cs` + `tools/build-launcher.mjs`：两个 exe 的源码与编译脚本（`LAN_EDITION` 编译期分叉）
+- `server.js`：零依赖静态服务器（`--lan` 开放局域网）
+- `start.sh`：Linux / macOS 入口
+
+**三维**
+
+- `app3d/main.mjs`：外壳、路由、面板接线、投屏与自助形态
+- `app3d/scene.mjs`：镜头、拾取、力流、挠度曲线、受力配色、拆解
+- `app3d/atlas.mjs`：场景装配与五座桥的几何构建
+- `app3d/panel.mjs` / `app3d/lab.mjs`：资料词条（六分区）与实验词条
+- `app3d/state.mjs` / `app3d/show-mode.mjs`：地址栏状态、投屏与自助形态的纯逻辑
+- `app3d/geo.mjs` / `app3d/terrain.mjs` / `app3d/deflection.mjs`：地理数据、地形、挠度换算（纯函数）
+
+**二维与素材**
+
+- `index.html` / `styles.css` / `app.js`：二维完整版本（三维不可用时的回落）
+- `presentation/build-deck.js`：12 页路演 PPT 生成脚本
+- `docs/previews/`：预览图；`preview/`：五座桥的离屏渲染图
+
+**工具**
+
+- `tools/lan-doctor.mjs`：手机连不上时的一键自查
+- `tools/render-preview.mjs`：导出桥梁预览图
+- `tools/build-geo.mjs` / `tools/build-bridge-data.mjs`：从源数据生成模块（支持 `--check`）
 
 ## 相关文档
 
 - [作品说明草稿](docs/作品说明草稿.md)
+- [安全提示与签名说明](docs/安全提示与签名说明.md)
+- [3D 重构开发计划（含逐版变更记录）](docs/3D重构开发计划.md)
 - [演示视频脚本](docs/演示视频脚本.md)
 - [资料核对表](docs/资料核对表.md)
 - [AI工具使用说明](docs/AI工具使用说明.md)
