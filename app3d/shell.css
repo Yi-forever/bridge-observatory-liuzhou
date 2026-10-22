@@ -1451,3 +1451,117 @@ body.app3d-active {
 .a3d-quiz-explanation[hidden] {
   display: none;
 }
+
+/* ------------------------------------------------------------------ *
+ * 实验词条收起态 + 移动端抽屉
+ * ------------------------------------------------------------------ */
+
+.a3d-lab.is-collapsed {
+  width: auto;
+  max-width: min(360px, calc(100vw - 56px));
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+
+.a3d-lab-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: rgba(214, 234, 236, 0.8);
+}
+
+.a3d-lab-barbridge {
+  font-weight: 600;
+  color: #f1f8f8;
+}
+
+.a3d-lab-barkicker {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(159, 216, 224, 0.18);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: #cfe6e9;
+}
+
+.a3d-lab-barreadout {
+  color: #ffcf6a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.a3d-lab-open {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(159, 216, 224, 0.32);
+  background: rgba(159, 216, 224, 0.14);
+  color: #eaf6f7;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.a3d-lab-open:hover,
+.a3d-lab-open:focus-visible {
+  background: rgba(159, 216, 224, 0.26);
+}
+
+/* 抽屉拖手：只在移动端出现 */
+.a3d-sheet-handle {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .a3d-panel,
+  .a3d-lab {
+    top: auto;
+    bottom: 0;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    border-radius: 18px 18px 0 0;
+    max-height: 48vh;
+    padding-top: 22px;
+    transition: max-height 220ms ease;
+  }
+
+  .a3d-panel[data-sheet="full"],
+  .a3d-lab[data-sheet="full"] {
+    max-height: 92vh;
+  }
+
+  .a3d-sheet-handle {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: grab;
+  }
+
+  .a3d-sheet-handle::after {
+    content: "";
+    display: block;
+    width: 44px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 2px;
+    background: rgba(159, 216, 224, 0.45);
+  }
+
+  /* 移动端同一时刻只留一个面板：实验展开时收起资料词条 */
+  .a3d-mobile-exp .a3d-panel {
+    display: none;
+  }
+
+  .a3d-lab.is-collapsed {
+    display: none;
+  }
+}

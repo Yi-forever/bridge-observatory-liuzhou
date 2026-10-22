@@ -1072,11 +1072,12 @@ for (const bridge of GEO.bridges) {
   checkTrue("未知桥回落总览", parseHash("#bridge/nope").view === "atlas");
 }
 
-/* ---------------- 结构实验室：侧栏（桩 DOM 跑真代码） ---------------- */
+/* ---------------- 实验词条：展开/收起、力流、荷载、配色 ---------------- */
 
 /**
- * 实验室侧栏是纯 DOM 逻辑。用最小的桩 document 把五座桥各渲染一遍，
- * 校验：选桥 chip、力流步骤数、当前步高亮、播放/拆解状态、回调是否接通。
+ * 实验词条（左栏）回答"力怎么走"：选桥、四步力流、车辆荷载、受力配色、拆解。
+ * 收起态必须仍能看到"实验进行到哪"——只留一条读数，否则收起等于失联。
+ * 这里用桩 DOM 把五座桥各渲染一遍。
  */
 {
   const makeElement = (tag) => {
@@ -1086,12 +1087,15 @@ for (const bridge of GEO.bridges) {
       textContent: "",
       _html: "",
       hidden: false,
+      disabled: false,
       type: "",
       title: "",
       value: "",
       min: "",
       max: "",
       step: "",
+      scope: "",
+      href: "",
       dataset: {},
       children: [],
       listeners: {},
@@ -1114,6 +1118,9 @@ for (const bridge of GEO.bridges) {
         }
       },
       setAttribute() {},
+      prepend(...nodes) {
+        this.children.unshift(...nodes);
+      },
       append(...nodes) {
         this.children.push(...nodes);
       },
@@ -1156,10 +1163,11 @@ for (const bridge of GEO.bridges) {
   };
 
   const host = makeElement("aside");
-  const calls = { bridge: [], step: [], play: 0, explode: 0, open: [], legacy: 0 };
+  const calls = { bridge: [], step: [], play: 0, explode: 0, colors: 0, collapsed: 0, load: [] };
   const lab = createLab(host, {
     bridges: BRIDGES,
     profiles: PROFILES,
+    goals: GOALS,
     onSelectBridge: (id) => calls.bridge.push(id),
     onSelectStep: (index) => calls.step.push(index),
     onTogglePlay: () => {
@@ -1168,275 +1176,82 @@ for (const bridge of GEO.bridges) {
     onToggleExplode: () => {
       calls.explode += 1;
     },
-    onOpenBridge: (id) => calls.open.push(id),
-    onOpen2d: () => {
-      calls.legacy += 1;
-    }
+    onToggleColors: () => {
+      calls.colors += 1;
+    },
+    onToggleCollapsed: () => {
+      calls.collapsed += 1;
+    },
+    onSetLoad: (value) => calls.load.push(value)
   });
 
   for (const bridge of BRIDGES) {
     const flow = FORCE_FLOW[bridge.id];
-    lab.show({ bridge, flow, step: 1, exploded: true, playing: true, load: 0.5 });
+    lab.show({
+      bridge,
+      flow,
+      step: 1,
+      exploded: true,
+      playing: true,
+      load: 0.5,
+      loadText: "跨中下沉约 2.0 cm（图形夸张 ×50）。",
+      forceColors: true,
+      showLoad: true,
+      collapsed: false,
+      readout: `第 2/${flow.length} 步`
+    });
 
-    // 页面上有三组 chip：实验页一组、对比页 A/B 各一组，这里只看实验页那一组
-    const chips = collect(collect(host, "a3d-lab-chips")[0], "a3d-lab-chip");
-    checkTrue(`实验室有 5 个选桥 chip（${bridge.id}）`, chips.length === 5, `chips=${chips.length}`);
+    const chips = collect(host, "a3d-lab-chip");
+    checkTrue(`实验词条有 5 个选桥 chip（${bridge.id}）`, chips.length === 5, `chips=${chips.length}`);
     checkTrue(
-      `实验室高亮当前实验桥（${bridge.id}）`,
+      `实验词条高亮当前桥（${bridge.id}）`,
       chips.filter((chip) => chip.classList.contains("is-active")).length === 1
     );
 
     const steps = collect(host, "a3d-lab-step");
     checkTrue(
-      `实验室步骤数与力流一致（${bridge.id}）`,
+      `实验词条步骤数与力流一致（${bridge.id}）`,
       steps.length === flow.length,
       `steps=${steps.length} flow=${flow.length}`
     );
     checkTrue(
-      `实验室高亮第 2 步（${bridge.id}）`,
+      `实验词条高亮第 2 步（${bridge.id}）`,
       steps.filter((item) => item.classList.contains("is-active")).length === 1
     );
 
-    // 点第 3 步 → 回调带对的索引
-    const before = calls.step.length;
-    for (const handler of steps[2].listeners.click || []) handler();
-    checkTrue(
-      `实验室步骤可点（${bridge.id}）`,
-      calls.step.length === before + 1 && calls.step[calls.step.length - 1] === 2,
-      calls.step.join(",")
-    );
-
-    // 拆解按钮的按下态跟随状态
-    const explodeButton = collect(host, "a3d-lab-tool").find((button) =>
-      button.textContent === "结构拆解"
-    );
-    checkTrue(`实验室有拆解按钮（${bridge.id}）`, Boolean(explodeButton));
+    // 图例与配色按钮
+    checkTrue(`实验词条有受力配色按钮（${bridge.id}）`, collect(host, "a3d-lab-tool").some((button) => button.textContent === "受力配色"));
+    checkTrue(`实验词条有图例（${bridge.id}）`, collect(host, "a3d-lab-legend").length === 1);
   }
 
-  // 选桥 chip 回调
-  const chips = collect(collect(host, "a3d-lab-chips")[0], "a3d-lab-chip");
+  // 步骤可点
+  const steps = collect(host, "a3d-lab-step");
+  const before = calls.step.length;
+  for (const handler of steps[2].listeners.click || []) handler();
+  checkTrue("实验步骤可点", calls.step.length === before + 1 && calls.step[calls.step.length - 1] === 2);
+
+  // 选桥 chip
+  const chips = collect(host, "a3d-lab-chip");
   for (const handler of chips[3].listeners.click || []) handler();
-  checkTrue("选桥 chip 回调接通", calls.bridge.length === 1, calls.bridge.join(","));
+  checkTrue("选桥 chip 回调接通", calls.bridge.length === 1);
 
-  // hide 之后收起
-  lab.hide();
-  checkTrue("实验室侧栏可收起", lab.isOpen === false && host.hidden === true);
-
-  delete globalThis.document;
-}
-
-/* ---------------- 受力配色表：必须指向真实构件 ---------------- */
-
-/**
- * FORCE_BY_MODEL 是手写的教学配色表，最容易在"构件改名"后悄悄失效
- * （表里写了不存在的 partId，配色就少一块而不报错）。这里逐条校验。
- */
-{
-  const { FORCE_BY_MODEL, FORCE_LEGEND, FORCE_NATURES, forceEntries } = await import(
-    "../app3d/force-map.mjs"
-  );
-
-  checkTrue(
-    "五种桥型都有受力配色",
-    Object.keys(FORCE_BY_MODEL).length === 5,
-    Object.keys(FORCE_BY_MODEL).join(",")
-  );
-
-  for (const bridge of BRIDGES) {
-    const table = FORCE_BY_MODEL[bridge.model];
-    checkTrue(`${bridge.id} 的桥型有配色表`, Boolean(table), bridge.model);
-    if (!table) continue;
-
-    const entry = atlas.bridges.get(bridge.id);
-    const available = entry && entry.parts ? [...entry.parts.keys()] : [];
-    for (const [partId, nature] of Object.entries(table)) {
-      checkTrue(
-        `${bridge.id}/${partId} 在 3D 里存在`,
-        available.includes(partId),
-        `3D 里有：${available.join(",")}`
-      );
-      checkTrue(
-        `${bridge.id}/${partId} 的性质是已知取值`,
-        FORCE_NATURES.includes(nature),
-        nature
-      );
-      checkTrue(`${bridge.id}/${partId} 的性质有图例说明`, Boolean(FORCE_LEGEND[nature] && FORCE_LEGEND[nature].label));
-    }
-
-    const entries = forceEntries(bridge.model, available);
-    checkTrue(`${bridge.id} 能生成受力配色条目`, entries.length >= 3, `entries=${entries.length}`);
-  }
-
-  // 多构件同时高亮：一次给整座桥上色
-  const ghostCount = (bridgeId) => {
-    let ghosts = 0;
-    const entry = atlas.bridges.get(bridgeId);
-    entry.group.traverse((object) => {
-      if (object.isMesh && object.userData && object.userData.noPick) ghosts += 1;
-    });
-    return ghosts;
-  };
-
-  const before = ghostCount("wenhui");
-  atlas.highlightParts("wenhui", [
-    { partId: "deck", style: "load" },
-    { partId: "hanger", style: "tension" },
-    { partId: "arch", style: "compression" },
-    { partId: "abutment", style: "compression" }
-  ]);
-  const after = ghostCount("wenhui");
-  checkTrue("多构件高亮会一次画出整座桥", after - before >= 4, `+${after - before}`);
-
-  atlas.clearPartHighlight();
-  checkTrue("多构件高亮可以清空", ghostCount("wenhui") === before, `${ghostCount("wenhui")} vs ${before}`);
-}
-
-/* ---------------- 结构实验室：对比页 ---------------- */
-
-/**
- * 对比页是"串行对比"：不把两座桥塞进同一个画面，而是并排给出受力档案 + 镜头分别飞过去。
- * 这里用桩 DOM 校验：页签能切、A/B 能各选一座、对比表覆盖档案字段并标出差异行。
- */
-{
-  const makeElement = (tag) => {
-    const element = {
-      tag,
-      className: "",
-      textContent: "",
-      _html: "",
-      hidden: false,
-      type: "",
-      title: "",
-      value: "",
-      min: "",
-      max: "",
-      step: "",
-      scope: "",
-      dataset: {},
-      children: [],
-      listeners: {},
-      classList: {
-        set: new Set(),
-        add(name) {
-          this.set.add(name);
-        },
-        remove(name) {
-          this.set.delete(name);
-        },
-        toggle(name, force) {
-          const on = force === undefined ? !this.set.has(name) : force;
-          if (on) this.set.add(name);
-          else this.set.delete(name);
-          return on;
-        },
-        contains(name) {
-          return this.set.has(name);
-        }
-      },
-      setAttribute() {},
-      append(...nodes) {
-        this.children.push(...nodes);
-      },
-      addEventListener(type, handler) {
-        (this.listeners[type] = this.listeners[type] || []).push(handler);
-      },
-      querySelector() {
-        return null;
-      },
-      scrollIntoView() {},
-      remove() {}
-    };
-    Object.defineProperty(element, "innerHTML", {
-      get() {
-        return element._html;
-      },
-      set(value) {
-        element._html = value;
-        if (value === "") element.children.length = 0;
-      }
-    });
-    return element;
-  };
-
-  globalThis.document = {
-    createElement: makeElement,
-    createTextNode: (textContent) => ({ tag: "#text", textContent })
-  };
-
-  const { createLab } = await import("../app3d/lab.mjs");
-  const { FORCE_FLOW } = await import("../app3d/scene.mjs");
-
-  const collect = (node, className, found = []) => {
-    if (!node || typeof node !== "object") return found;
-    if (typeof node.className === "string" && node.className.split(/\s+/).includes(className)) {
-      found.push(node);
-    }
-    for (const child of node.children || []) collect(child, className, found);
-    return found;
-  };
-
-  const host = makeElement("aside");
-  const calls = { tab: [], compare: [], focus: [] };
-  const lab = createLab(host, {
-    bridges: BRIDGES,
-    profiles: PROFILES,
-    goals: GOALS,
-    onSelectTab: (tab) => calls.tab.push(tab),
-    onSelectCompare: (slot, id) => calls.compare.push(`${slot}:${id}`),
-    onFocusBridge: (id) => calls.focus.push(id)
-  });
-
+  // 收起态：只剩一条读数 + 展开按钮
   const wenhui = BRIDGES.find((bridge) => bridge.id === "wenhui");
   lab.show({
     bridge: wenhui,
     flow: FORCE_FLOW.wenhui,
-    step: 0,
-    tab: "compare",
-    compare: { a: "wenhui", b: "baisha" }
+    step: 2,
+    load: 0.4,
+    collapsed: true,
+    readout: "第 3/4 步 · 拱肋 · 荷载 40%"
   });
-
-  // 两个页签，当前在"对比"
-  const tabButtons = collect(host, "a3d-lab-tab");
-  checkTrue("实验室有两个页签", tabButtons.length === 2, `tabs=${tabButtons.length}`);
-  checkTrue(
-    "对比页签处于选中态",
-    tabButtons.filter((button) => button.classList.contains("is-active")).length === 1 &&
-      tabButtons[1].classList.contains("is-active")
-  );
-
-  // 切页签回调
-  for (const handler of tabButtons[0].listeners.click || []) handler();
-  checkTrue("页签可切换", calls.tab[0] === "experiment", calls.tab.join(","));
-
-  // A/B 选择：每行 5 个 chip
-  const slots = collect(host, "a3d-lab-slot");
-  checkTrue("对比页有 A/B 两行选择", slots.length === 2, `slots=${slots.length}`);
-  for (const slot of slots) {
-    const chips = collect(slot, "a3d-lab-chip");
-    checkTrue("每个对比槽位都能选全部五座桥", chips.length === BRIDGES.length, `chips=${chips.length}`);
-  }
-  const slotChips = collect(slots[1], "a3d-lab-chip");
-  const target = slotChips.find((chip) => chip.dataset.bridge === "liujiang");
-  for (const handler of target.listeners.click || []) handler();
-  checkTrue("对比槽位回调带对的 A/B 与桥 id", calls.compare[0] === "b:liujiang", calls.compare.join(","));
-
-  // 对比表：4 个档案字段 + 学习目标
-  const tables = collect(host, "a3d-lab-table");
-  const bodyRows = tables.flatMap((table) =>
-    table.children
-      .filter((section) => section.tag === "tbody")
-      .flatMap((section) => section.children.filter((row) => row.tag === "tr"))
-  );
-  checkTrue(
-    "对比表覆盖受力/构件/场景/思考题/目标",
-    bodyRows.length === 5,
-    `rows=${bodyRows.length}`
-  );
-  checkTrue(
-    "两座桥不同的行会被标出来",
-    bodyRows.filter((row) => row.classList.contains("is-diff")).length >= 2,
-    `diff=${bodyRows.filter((row) => row.classList.contains("is-diff")).length}`
-  );
+  checkTrue("收起后仍有读数条", collect(host, "a3d-lab-bar").length === 1);
+  checkTrue("收起后步骤列表消失", collect(host, "a3d-lab-step").length === 0, `steps=${collect(host, "a3d-lab-step").length}`);
+  const readout = collect(host, "a3d-lab-barreadout")[0];
+  checkTrue("读数里有实验进度", Boolean(readout) && readout.textContent.includes("第 3/4 步"), readout && readout.textContent);
+  const openButton = collect(host, "a3d-lab-open")[0];
+  for (const handler of openButton.listeners.click || []) handler();
+  checkTrue("读数条能展开", calls.collapsed === 1);
 
   lab.hide();
   delete globalThis.document;

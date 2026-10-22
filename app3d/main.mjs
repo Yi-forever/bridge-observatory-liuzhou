@@ -77,9 +77,6 @@ let pendingPart = null;
 let labTimer = null;
 /** 荷载读数文案（由场景回传）。 */
 let labLoadText = "";
-/** 实验词条页签与对比对象（临时状态，不进 hash）。 */
-let labTab = "experiment";
-let labCompare = { a: null, b: null };
 
 function stopLabPlayback() {
   if (labTimer !== null) {
@@ -322,6 +319,48 @@ async function ensureSceneReady(state) {
   }
 }
 
+/**
+ * 移动端抽屉拖手：向上拖/点一下 = 全屏，向下拖 = 半屏。
+ * 桌面端不生效（面板本来就固定在侧边）。
+ */
+function bindSheet(host) {
+  if (!host) return;
+  const handle = host.querySelector(".a3d-sheet-handle");
+  if (handle) return;
+
+  const created = document.createElement("button");
+  created.type = "button";
+  created.className = "a3d-sheet-handle";
+  created.setAttribute("aria-label", "拖动切换半屏或全屏");
+  host.prepend(created);
+
+  const isMobile = () => window.matchMedia("(max-width: 720px)").matches;
+  let startY = null;
+
+  created.addEventListener("pointerdown", (event) => {
+    if (!isMobile()) return;
+    startY = event.clientY;
+    try {
+      created.setPointerCapture(event.pointerId);
+    } catch {
+      /* 忽略：个别浏览器不支持捕获 */
+    }
+  });
+
+  created.addEventListener("pointerup", (event) => {
+    if (startY === null) return;
+    const dy = event.clientY - startY;
+    startY = null;
+    const current = host.dataset.sheet === "full" ? "full" : "half";
+    let next = current;
+    if (Math.abs(dy) > 30) next = dy < 0 ? "full" : "half";
+    else next = current === "full" ? "half" : "full";
+    host.dataset.sheet = next;
+  });
+
+  if (isMobile()) host.dataset.sheet = host.dataset.sheet || "half";
+}
+
 /** 只有"单桥视图"才显示资料卡；其余视图收起并清掉构件高亮。 */
 function applyPanel(state) {
   if (!panel) return;
@@ -345,6 +384,8 @@ function applyPanel(state) {
     quiz: QUIZ,
     bridges: BRIDGES
   });
+  bindSheet(els.panel);
+  document.body.classList.toggle("a3d-mobile-exp", Boolean(state.exp));
 
   if (pendingPart && pendingPart.bridgeId === state.bridgeId) {
     if (scene && scene.highlightPart) {
@@ -367,12 +408,11 @@ function applyPanel(state) {
 function applyExperiment(state) {
   if (!lab) return;
 
-  const exp = Boolean(state && state.view === "bridge" && state.exp && state.bridgeId);
-  const bridge = exp ? BRIDGE_BY_ID.get(state.bridgeId) : null;
-  if (!exp || !bridge) {
+  const onBridge = Boolean(state && state.view === "bridge" && state.bridgeId);
+  const bridge = onBridge ? BRIDGE_BY_ID.get(state.bridgeId) : null;
+  if (!onBridge || !bridge) {
     lab.hide();
     stopLabPlayback();
-    labTab = "experiment";
     return;
   }
 
@@ -388,10 +428,31 @@ function applyExperiment(state) {
     loadText: labLoadText,
     forceColors: current.colors,
     showLoad: Boolean(scene && scene.setLabLoad),
-    tab: labTab,
-    compare: { a: labCompare.a || state.bridgeId, b: labCompare.b }
+    // 收起态：实验进行到哪一步、荷载多少、下沉几厘米，一眼能看到
+    collapsed: !state.exp,
+    readout: experimentReadout(state, flow),
+    onToggleCollapsed: () => {
+      const now = router ? router.current : null;
+      if (!now) return;
+      window.location.hash = toHash({ ...now, exp: !now.exp });
+    }
   });
-  applyExperimentVisuals(state);
+  if (state.exp) applyExperimentVisuals(state);
+  bindSheet(els.labPanel);
+}
+
+/** 实验读数：第几步 / 构件名 / 荷载百分比 / 下沉值，收起态与 HUD 共用。 */
+function experimentReadout(state, flow) {
+  const current = experimentState(state);
+  const parts = [];
+  if (Number.isInteger(current.step) && flow[current.step]) {
+    parts.push(`第 ${current.step + 1}/${flow.length} 步 · ${flow[current.step]}`);
+  } else {
+    parts.push("未开始");
+  }
+  if (current.load > 0) parts.push(`荷载 ${Math.round(current.load * 100)}%`);
+  if (current.exploded) parts.push("已拆解");
+  return parts.join(" · ");
 }
 
 /**
@@ -520,7 +581,7 @@ function boot() {
         const state = router ? router.current : null;
         if (!state) return;
         stopLabPlayback();
-        window.location.hash = toHash({ ...state, step: index });
+        window.location.hash = toHash({ ...state, step: index, exp: true });
       },
       onTogglePlay: () => {
         const state = router ? router.current : null;
@@ -535,7 +596,7 @@ function boot() {
         let cursor = Number.isInteger(state.step) ? state.step : -1;
         const advance = () => {
           cursor = (cursor + 1) % flow.length;
-          window.location.hash = toHash({ ...router.current, step: cursor });
+          window.location.hash = toHash({ ...router.current, step: cursor, exp: true });
         };
         advance();
         labTimer = window.setInterval(advance, 1800);
@@ -544,31 +605,18 @@ function boot() {
       onToggleExplode: () => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({ ...state, exploded: !state.exploded });
+        window.location.hash = toHash({ ...state, exploded: !state.exploded, exp: true });
       },
       onSetLoad: (value) => {
         const state = router ? router.current : null;
         if (!state) return;
         const load = Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100) / 100;
-        window.location.hash = toHash({ ...state, load: load === 0 ? null : load });
-        applyExperimentVisuals({ ...state, load });
+        window.location.hash = toHash({ ...state, load: load === 0 ? null : load, exp: true });
       },
       onToggleColors: () => {
         const state = router ? router.current : null;
         if (!state) return;
-        window.location.hash = toHash({ ...state, colors: !state.colors });
-      },
-      onSelectTab: (tab) => {
-        labTab = tab === "compare" ? "compare" : "experiment";
-        if (lab) lab.show({ tab: labTab, compare: { a: labCompare.a, b: labCompare.b } });
-      },
-      onSelectCompare: (slot, bridgeId) => {
-        if (slot !== "a" && slot !== "b") return;
-        labCompare = { ...labCompare, [slot]: bridgeId };
-        if (lab) lab.show({ compare: labCompare });
-      },
-      onFocusBridge: (bridgeId) => {
-        if (scene && scene.focusBridge) scene.focusBridge(bridgeId);
+        window.location.hash = toHash({ ...state, colors: !state.colors, exp: true });
       },
       onOpenBridge: () => {
         const state = router ? router.current : null;

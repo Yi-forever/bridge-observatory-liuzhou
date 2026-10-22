@@ -45,8 +45,7 @@ export function createLab(host, options = {}) {
     onToggleExplode,
     onSetLoad,
     onToggleColors,
-    onSelectTab,
-    onSelectCompare,
+    onToggleCollapsed,
     onFocusBridge,
     onOpenBridge,
     onOpen2d,
@@ -65,8 +64,8 @@ export function createLab(host, options = {}) {
     loadText: "",
     forceColors: false,
     showLoad: false,
-    tab: "experiment",
-    compare: { a: null, b: null }
+    collapsed: false,
+    readout: ""
   };
   let els = null;
 
@@ -237,130 +236,52 @@ export function createLab(host, options = {}) {
     };
   }
 
-  /* ---------------- 对比页 ---------------- */
-
-  function buildCompare() {
-    const wrap = document.createElement("div");
-    wrap.className = "a3d-lab-page";
-
-    const pick = document.createElement("div");
-    pick.className = "a3d-lab-compare";
-    const slots = {};
-    for (const slot of ["a", "b"]) {
-      const row = document.createElement("div");
-      row.className = "a3d-lab-slot";
-      const label = document.createElement("span");
-      label.className = "a3d-lab-slotlabel";
-      label.textContent = slot.toUpperCase();
-      const buttons = document.createElement("div");
-      buttons.className = "a3d-lab-chips";
-      const map = new Map();
-      for (const bridge of options.bridges || []) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "a3d-lab-chip";
-        button.dataset.bridge = bridge.id;
-        button.textContent = bridge.name.replace("大桥", "").replace("桥", "");
-        button.addEventListener("click", () => onSelectCompare && onSelectCompare(slot, bridge.id));
-        buttons.append(button);
-        map.set(bridge.id, button);
-      }
-      row.append(label, buttons);
-      pick.append(row);
-      slots[slot] = map;
-    }
-
-    const table = document.createElement("table");
-    table.className = "a3d-lab-table";
-    const thead = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    for (const text of ["对比项", "A", "B"]) {
-      const th = document.createElement("th");
-      th.scope = "col";
-      th.textContent = text;
-      headRow.append(th);
-    }
-    thead.append(headRow);
-    const tbody = document.createElement("tbody");
-    table.append(thead, tbody);
-
-    const actions = document.createElement("div");
-    actions.className = "a3d-lab-tools";
-    const focusA = document.createElement("button");
-    focusA.type = "button";
-    focusA.className = "a3d-lab-tool";
-    focusA.textContent = "镜头 → A";
-    focusA.addEventListener("click", () => {
-      const id = state.compare.a || (state.bridge && state.bridge.id);
-      if (id && onFocusBridge) onFocusBridge(id);
-    });
-    const focusB = document.createElement("button");
-    focusB.type = "button";
-    focusB.className = "a3d-lab-tool";
-    focusB.textContent = "镜头 → B";
-    focusB.addEventListener("click", () => {
-      if (state.compare.b && onFocusBridge) onFocusBridge(state.compare.b);
-    });
-    actions.append(focusA, focusB);
-
-    const note = document.createElement("p");
-    note.className = "a3d-lab-note";
-    note.textContent = "串行对比：两座桥不同屏，用镜头分别飞过去看。";
-
-    wrap.append(pick, table, actions, note);
-    return { wrap, slots, tbody };
-  }
-
-  function renderCompare() {
-    if (!els) return;
-    for (const slot of ["a", "b"]) {
-      for (const [id, button] of els.compareSlots[slot]) {
-        const active = state.compare[slot] === id;
-        button.classList.toggle("is-active", active);
-        button.setAttribute("aria-pressed", active ? "true" : "false");
-      }
-    }
-
-    const idA = state.compare.a;
-    const idB = state.compare.b;
-    const profileA = profileOf(idA);
-    const profileB = profileOf(idB);
-    const bridgeA = bridgeById(idA);
-    const bridgeB = bridgeById(idB);
-
-    const rows = COMPARE_ROWS.map((row) => ({
-      label: row.label,
-      a: profileA ? profileA[row.key] : "",
-      b: profileB ? profileB[row.key] : ""
-    }));
-    rows.push({
-      label: "学习目标",
-      a: bridgeA ? goals[bridgeA.model] : "",
-      b: bridgeB ? goals[bridgeB.model] : ""
-    });
-
-    const tbody = els.compareBody;
-    tbody.innerHTML = "";
-    for (const row of rows) {
-      const tr = document.createElement("tr");
-      const th = document.createElement("th");
-      th.textContent = row.label;
-      th.scope = "row";
-      const tdA = document.createElement("td");
-      tdA.textContent = row.a || "—";
-      const tdB = document.createElement("td");
-      tdB.textContent = row.b || "—";
-      if (row.a && row.b && row.a !== row.b) tr.classList.add("is-diff");
-      tr.append(th, tdA, tdB);
-      tbody.append(tr);
-    }
-  }
-
   /* ---------------- 组装 ---------------- */
+
+  /** 收起态：一条紧凑读数 + 展开按钮，仍然看得到实验进行到哪。 */
+  function buildCollapsed() {
+    host.innerHTML = "";
+    host.hidden = false;
+    host.classList.add("is-collapsed");
+
+    const bar = document.createElement("div");
+    bar.className = "a3d-lab-bar";
+
+    const kicker = document.createElement("span");
+    kicker.className = "a3d-lab-barkicker";
+    kicker.textContent = "实验";
+
+    const readout = document.createElement("span");
+    readout.className = "a3d-lab-barreadout";
+    readout.textContent = state.readout || "未开始";
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "a3d-lab-open";
+    open.textContent = "展开";
+    open.setAttribute("aria-expanded", "false");
+    open.addEventListener("click", () => onToggleCollapsed && onToggleCollapsed());
+
+    bar.append(kicker, readout, open);
+    host.append(bar);
+
+    const bridgeName = document.createElement("span");
+    bridgeName.className = "a3d-lab-barbridge";
+    bridgeName.textContent = state.bridge ? state.bridge.name : "";
+    bar.prepend(bridgeName);
+
+    els = { collapsedBar: { bar, readout, open } };
+  }
 
   function build() {
     host.innerHTML = "";
     host.hidden = false;
+    host.classList.remove("is-collapsed");
+
+    if (state.collapsed) {
+      buildCollapsed();
+      return;
+    }
 
     const header = document.createElement("header");
     header.className = "a3d-panel-head";
@@ -373,37 +294,16 @@ export function createLab(host, options = {}) {
     title.textContent = "结构实验室";
     titleWrap.append(kicker, title);
 
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "a3d-panel-close";
-    close.setAttribute("aria-label", "关闭实验室，回到总览");
-    close.textContent = "×";
-    close.addEventListener("click", () => {
-      window.location.hash = "#atlas";
-    });
-    header.append(titleWrap, close);
-
-    const tabs = document.createElement("div");
-    tabs.className = "a3d-lab-tabs";
-    tabs.setAttribute("role", "tablist");
-    const tabButtons = {};
-    for (const [key, label] of [
-      ["experiment", "实验"],
-      ["compare", "对比"]
-    ]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "a3d-lab-tab";
-      button.textContent = label;
-      button.dataset.tab = key;
-      button.addEventListener("click", () => onSelectTab && onSelectTab(key));
-      tabs.append(button);
-      tabButtons[key] = button;
-    }
+    const collapseButton = document.createElement("button");
+    collapseButton.type = "button";
+    collapseButton.className = "a3d-panel-close";
+    collapseButton.setAttribute("aria-label", "收起实验词条");
+    collapseButton.textContent = "▾";
+    collapseButton.addEventListener("click", () => onToggleCollapsed && onToggleCollapsed());
+    header.append(titleWrap, collapseButton);
 
     const experiment = buildExperiment();
-    const compare = buildCompare();
-    host.append(header, tabs, experiment.wrap, compare.wrap);
+    host.append(header, experiment.wrap);
 
     const footer = document.createElement("footer");
     footer.className = "a3d-panel-foot";
@@ -415,25 +315,11 @@ export function createLab(host, options = {}) {
     footer.append(cta);
     host.append(footer);
 
-    els = {
-      ...experiment,
-      tabButtons,
-      compareWrap: compare.wrap,
-      compareSlots: compare.slots,
-      compareBody: compare.tbody
-    };
+    els = { ...experiment };
   }
 
   function render() {
     if (!els) return;
-
-    for (const [key, button] of Object.entries(els.tabButtons)) {
-      const active = state.tab === key;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-selected", active ? "true" : "false");
-    }
-    els.wrap.hidden = state.tab !== "experiment";
-    els.compareWrap.hidden = state.tab !== "compare";
 
     for (const [id, button] of els.chipButtons) {
       const active = state.bridge && state.bridge.id === id;
@@ -462,15 +348,19 @@ export function createLab(host, options = {}) {
     els.loadValue.textContent = `${Math.round((state.load || 0) * 100)}%`;
     els.loadNote.textContent = state.loadText || "";
 
-    renderCompare();
   }
 
   return {
     show(next) {
       const bridgeChanged = !state.bridge || !next.bridge || state.bridge.id !== next.bridge.id;
       const flowChanged = JSON.stringify(state.flow) !== JSON.stringify(next.flow || []);
+      const collapsedChanged = Boolean(next.collapsed) !== Boolean(state.collapsed);
       state = { ...state, ...next };
-      if (bridgeChanged || flowChanged || !els) build();
+      if (bridgeChanged || flowChanged || collapsedChanged || !els) build();
+      if (state.collapsed) {
+        if (els && els.collapsedBar) els.collapsedBar.readout.textContent = state.readout || "未开始";
+        return;
+      }
       render();
       if (els) {
         els.stepButtons.forEach((button, index) => {
