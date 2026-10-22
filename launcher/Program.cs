@@ -13,22 +13,35 @@ using System.Windows.Forms;
 namespace QiaojianLauncher
 {
     /// <summary>
-    /// 桥见柳州 · 启动器（一个程序干完全部事情）。
+    /// 桥见柳州 · 启动器。源码编译两次，得到两个互不干扰的程序：
     ///
-    ///   1. 内置静态服务，不需要 Node.js；
-    ///   2. **默认对局域网开放**（绑定 0.0.0.0），手机连同一 Wi-Fi 就能打开；
-    ///   3. 自动确保 Windows 防火墙放行（缺规则时申请一次管理员权限，之后不再打扰）；
-    ///   4. 用一个可复制地址的小窗口告诉使用者：手机上该输入什么。
+    ///   桥见柳州.exe（本地版，未定义 LAN_EDITION）
+    ///     只绑 127.0.0.1，只在本机打开桌面窗口；不开放局域网、不改防火墙。
     ///
-    /// 参数：
-    ///   --local             只允许本机访问（不开放局域网、不改防火墙）
+    ///   桥见柳州-手机访问.exe（局域网版，/define:LAN_EDITION）
+    ///     绑 0.0.0.0，只为同 Wi-Fi 的手机/平板服务：自动确保防火墙放行，
+    ///     弹出可复制的地址窗口，**不打开本地桌面窗口**。
+    ///
+    /// 两个版本共用同一套静态服务代码，行为差异全部在编译期决定，
+    /// 避免"同一个程序靠参数切换"导致用户点错入口。
+    ///
+    /// 参数（两版通用）：
     ///   --port=4173         指定起始端口（默认从 4173 起找空位）
-    ///   --no-launch         只起服务、不开浏览器（自动化验收用）
+    ///   --no-launch         只起服务、不开任何窗口（自动化验收用）
+    ///   --no-firewall       跳过防火墙处理（局域网版调试用）
     ///   --add-firewall-only 只加防火墙规则然后退出（内部用于提权重启）
     /// </summary>
     internal static class Program
     {
-        private const string RuleNameExe = "Bridge Observatory (exe)";
+#if LAN_EDITION
+        /// <summary>局域网版：对外服务，不打开本地窗口。</summary>
+        private const bool LanEdition = true;
+        private const string RuleNameExe = "Bridge Observatory (lan)";
+#else
+        /// <summary>本地版：只服务本机，不开放局域网。</summary>
+        private const bool LanEdition = false;
+        private const string RuleNameExe = "Bridge Observatory (local)";
+#endif
         private const string RuleNamePort = "Bridge Observatory (port)";
 
         private static string _root;
@@ -64,14 +77,16 @@ namespace QiaojianLauncher
             _root = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
 
             var noLaunch = Array.IndexOf(args, "--no-launch") >= 0;
-            var localOnly = Array.IndexOf(args, "--local") >= 0;
-            var addFirewallOnly = Array.IndexOf(args, "--add-firewall-only") >= 0;
             var skipFirewall = Array.IndexOf(args, "--no-firewall") >= 0;
+            var addFirewallOnly = Array.IndexOf(args, "--add-firewall-only") >= 0;
 
             if (addFirewallOnly)
             {
                 return AddFirewallRules() ? 0 : 1;
             }
+
+            // 版本决定绑定范围：本地版只回环，局域网版绑全部网卡
+            var localOnly = !LanEdition;
 
             var startPort = 4173;
             foreach (var arg in args)
@@ -83,7 +98,7 @@ namespace QiaojianLauncher
                 }
             }
 
-            // 先确保防火墙放行：只有在缺规则时才申请一次管理员权限，之后每次启动都跳过
+            // 只有局域网版需要碰防火墙；本地版永远不碰（改动别人的系统设置必须有必要才行）
             var firewallOk = localOnly || skipFirewall || EnsureFirewall();
 
             TcpListener listener = null;
@@ -123,12 +138,28 @@ namespace QiaojianLauncher
                 return 0;
             }
 
-            if (!localOnly)
+#if LAN_EDITION
+            // 局域网版：不打开本地桌面窗口，地址窗口就是主界面——关掉它即停止服务
+            if (noLaunch)
             {
-                var uiThread = new Thread(() => ShowAccessWindow(lanUrls, firewallOk));
-                uiThread.SetApartmentState(ApartmentState.STA);
-                uiThread.IsBackground = true;
-                uiThread.Start();
+                Console.WriteLine(localUrl);
+                foreach (var item in lanUrls) Console.WriteLine(item);
+                Console.Out.Flush();
+                Thread.Sleep(Timeout.Infinite);
+                return 0;
+            }
+
+            Application.Run(BuildAccessForm(lanUrls, firewallOk));
+            listener.Stop();
+            return 0;
+#else
+            // 本地版：只在本机浏览器里打开，不弹地址窗、不碰防火墙
+            if (noLaunch)
+            {
+                Console.WriteLine(localUrl);
+                Console.Out.Flush();
+                Thread.Sleep(Timeout.Infinite);
+                return 0;
             }
 
             var browser = FindBrowser();
@@ -160,6 +191,7 @@ namespace QiaojianLauncher
             process.WaitForExit();
             listener.Stop();
             return 0;
+#endif
         }
 
         /* ---------------- 防火墙 ---------------- */
@@ -184,13 +216,52 @@ namespace QiaojianLauncher
         }
 
         /// <summary>
+        /// 标记文件：记录"哪一份 exe 路径已经放行过"。
+        /// 规则名是按版本区分的，但 exe 可能被移动/改名——那时旧规则指向旧路径，手机仍连不上。
+        /// 用标记 + 规则存在两个条件一起判断，既不会反复弹 UAC，也能在 exe 移动后重新放行。
+        /// </summary>
+        private static string MarkerPath()
+        {
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QiaojianLiuzhou");
+            return Path.Combine(folder, "firewall-allowed.txt");
+        }
+
+        private static string ReadMarker()
+        {
+            try
+            {
+                var path = MarkerPath();
+                return File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static void WriteMarker()
+        {
+            try
+            {
+                var path = MarkerPath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(path, Application.ExecutablePath);
+            }
+            catch
+            {
+                // 写不了标记不影响使用，只是下次可能再问一次
+            }
+        }
+
+        /// <summary>
         /// 确保防火墙放行。缺规则时：已是管理员就直接加；否则以管理员身份重启自己
         /// （--add-firewall-only），等它加完再继续。用户拒绝授权时返回 false，
         /// 服务照常运行（本机仍可访问），界面会给出提示。
         /// </summary>
         private static bool EnsureFirewall()
         {
-            if (RuleExists()) return true;
+            var currentPath = Application.ExecutablePath;
+            if (RuleExists() && string.Equals(ReadMarker(), currentPath, StringComparison.OrdinalIgnoreCase)) return true;
             if (IsAdmin()) return AddFirewallRules();
 
             try
@@ -204,7 +275,7 @@ namespace QiaojianLauncher
                 });
                 if (elevate == null) return false;
                 elevate.WaitForExit();
-                return RuleExists();
+                return RuleExists() && string.Equals(ReadMarker(), currentPath, StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -216,6 +287,9 @@ namespace QiaojianLauncher
         private static bool AddFirewallRules()
         {
             var exePath = Application.ExecutablePath;
+            // 顺手清掉旧版本（未拆版）留下的通用规则名，避免出现指向旧路径的僵尸规则
+            Netsh("advfirewall firewall delete rule name=\"Bridge Observatory (exe)\"");
+
             Netsh("advfirewall firewall delete rule name=\"" + RuleNameExe + "\"");
             Netsh("advfirewall firewall delete rule name=\"" + RuleNamePort + "\"");
             var okExe = Netsh("advfirewall firewall add rule name=\"" + RuleNameExe + "\" dir=in action=allow program=\"" + exePath + "\" enable=yes profile=any").Ok;
@@ -229,6 +303,7 @@ namespace QiaojianLauncher
                 Netsh("advfirewall firewall add rule name=\"Bridge Observatory (node)\" dir=in action=allow program=\"" + node + "\" enable=yes profile=any");
             }
 
+            if (okExe && okPort) WriteMarker();
             return okExe && okPort;
         }
 
@@ -298,97 +373,89 @@ namespace QiaojianLauncher
 
         /* ---------------- 手机地址窗口 ---------------- */
 
-        private static void ShowAccessWindow(List<string> lanUrls, bool firewallOk)
+        private static Form BuildAccessForm(List<string> lanUrls, bool firewallOk)
         {
-            try
+            var form = new Form
             {
-                var form = new Form
-                {
-                    Text = "桥见柳州 · 手机访问",
-                    ClientSize = new Size(560, 300),
-                    StartPosition = FormStartPosition.CenterScreen,
-                    TopMost = true,
-                    MaximizeBox = false,
-                    MinimizeBox = true,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    Font = new Font("Microsoft YaHei UI", 9F)
-                };
+                Text = "桥见柳州 · 手机访问",
+                ClientSize = new Size(560, 300),
+                StartPosition = FormStartPosition.CenterScreen,
+                TopMost = true,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Font = new Font("Microsoft YaHei UI", 9F)
+            };
 
-                var title = new Label
-                {
-                    Text = "手机浏览器打开下面任一地址（需与电脑连同一个 Wi-Fi）",
-                    Dock = DockStyle.Top,
-                    Height = 42,
-                    TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(14, 0, 0, 0),
-                    Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold)
-                };
-
-                var addressBox = new TextBox
-                {
-                    Multiline = true,
-                    ReadOnly = true,
-                    ScrollBars = ScrollBars.Vertical,
-                    Dock = DockStyle.Fill,
-                    Font = new Font("Consolas", 13F),
-                    BackColor = Color.White,
-                    Text = lanUrls.Count > 0
-                        ? string.Join(Environment.NewLine, lanUrls)
-                        : "未找到局域网地址：请先确认电脑已连接 Wi-Fi 或网线。"
-                };
-
-                var hint = new Label
-                {
-                    Text = firewallOk
-                        ? "防火墙已放行；演示结束关闭窗口即停止服务。"
-                        : "注意：防火墙未放行（管理员授权被取消），手机可能连不上。重新打开本程序并在弹窗里选择“是”即可。",
-                    Dock = DockStyle.Bottom,
-                    Height = 46,
-                    TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(14, 0, 0, 0),
-                    ForeColor = firewallOk ? Color.DimGray : Color.Firebrick
-                };
-
-                var buttons = new FlowLayoutPanel
-                {
-                    Dock = DockStyle.Bottom,
-                    FlowDirection = FlowDirection.RightToLeft,
-                    Height = 50,
-                    Padding = new Padding(10, 8, 10, 8)
-                };
-
-                var close = new Button { Text = "关闭提示", AutoSize = true, MinimumSize = new Size(96, 32) };
-                close.Click += (sender, eventArgs) => form.Close();
-
-                var copy = new Button { Text = "复制地址", AutoSize = true, MinimumSize = new Size(96, 32) };
-                copy.Click += (sender, eventArgs) =>
-                {
-                    if (lanUrls.Count == 0) return;
-                    try
-                    {
-                        Clipboard.SetText(lanUrls[0]);
-                        copy.Text = "已复制";
-                    }
-                    catch
-                    {
-                        // 剪贴板偶尔会被别的程序占用
-                    }
-                };
-
-                buttons.Controls.Add(close);
-                buttons.Controls.Add(copy);
-
-                form.Controls.Add(addressBox);
-                form.Controls.Add(title);
-                form.Controls.Add(buttons);
-                form.Controls.Add(hint);
-
-                Application.Run(form);
-            }
-            catch
+            var title = new Label
             {
-                // 无桌面环境时窗口开不出来，但不该影响服务
-            }
+                Text = "手机浏览器打开下面任一地址（需与电脑连同一个 Wi-Fi）",
+                Dock = DockStyle.Top,
+                Height = 42,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(14, 0, 0, 0),
+                Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold)
+            };
+
+            var addressBox = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 13F),
+                BackColor = Color.White,
+                Text = lanUrls.Count > 0
+                    ? string.Join(Environment.NewLine, lanUrls)
+                    : "未找到局域网地址：请先确认电脑已连接 Wi-Fi 或网线。"
+            };
+
+            var hint = new Label
+            {
+                Text = firewallOk
+                    ? "防火墙已放行。关闭这个窗口即停止服务。"
+                    : "注意：防火墙未放行（管理员授权被取消），手机可能连不上。重新打开本程序并在弹窗里选择“是”即可。",
+                Dock = DockStyle.Bottom,
+                Height = 46,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(14, 0, 0, 0),
+                ForeColor = firewallOk ? Color.DimGray : Color.Firebrick
+            };
+
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                FlowDirection = FlowDirection.RightToLeft,
+                Height = 50,
+                Padding = new Padding(10, 8, 10, 8)
+            };
+
+            var close = new Button { Text = "停止服务", AutoSize = true, MinimumSize = new Size(96, 32) };
+            close.Click += (sender, eventArgs) => form.Close();
+
+            var copy = new Button { Text = "复制地址", AutoSize = true, MinimumSize = new Size(96, 32) };
+            copy.Click += (sender, eventArgs) =>
+            {
+                if (lanUrls.Count == 0) return;
+                try
+                {
+                    Clipboard.SetText(lanUrls[0]);
+                    copy.Text = "已复制";
+                }
+                catch
+                {
+                    // 剪贴板偶尔会被别的程序占用
+                }
+            };
+
+            buttons.Controls.Add(close);
+            buttons.Controls.Add(copy);
+
+            form.Controls.Add(addressBox);
+            form.Controls.Add(title);
+            form.Controls.Add(buttons);
+            form.Controls.Add(hint);
+            return form;
         }
 
         /* ---------------- 站点服务 ---------------- */

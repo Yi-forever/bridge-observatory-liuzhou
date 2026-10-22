@@ -1928,49 +1928,60 @@ for (const bridge of GEO.bridges) {
   );
 }
 
-/* ---------------- 启动脚本的可执行性 ---------------- */
+/* ---------------- 两个启动程序：本地版 / 局域网版 ---------------- */
 
 /**
- * 两件曾经真出过问题的事：
- *   1. 把 .bat 存成 UTF-8 并写中文 → cmd 按 OEM 代码页读成乱码，
- *      "if exist 桥见柳州.exe" 静默跳过，双击"没反应"。
- *   2. 把"对局域网开放"拆成两个脚本（开关 + 启动）→ 用户只跑其中一个，
- *      手机就连不上。现在合并进一个程序：桥见柳州.exe 自己搞定
- *      静态服务、LAN 绑定、防火墙规则和地址窗口。
+ * 用户要求把两件事分开成两个程序，不要靠参数切换：
+ *   桥见柳州.exe            本地版：只绑 127.0.0.1，只在本机开窗口；不开放局域网、不碰防火墙
+ *   桥见柳州-手机访问.exe    局域网版：绑 0.0.0.0，自动放行防火墙，只弹地址窗口（不开桌面窗口）
  *
- * 所以：启动脚本只留 start.bat（启动器的兜底），且必须纯 ASCII。
+ * 共用 launcher/Program.cs，靠编译期 #if LAN_EDITION 分叉。
+ * 这里守住"差异确实存在"与"差异方向正确"，避免以后改一个版本时把另一个带坏。
  */
 {
-  const readFile = async (name) =>
-    (await import("node:fs/promises")).readFile(new URL(`../${name}`, import.meta.url), "utf8");
+  const launcher = await (await import("node:fs/promises")).readFile(
+    new URL("../launcher/Program.cs", import.meta.url),
+    "utf8"
+  );
+  const buildScript = await (await import("node:fs/promises")).readFile(
+    new URL("../tools/build-launcher.mjs", import.meta.url),
+    "utf8"
+  );
 
+  // 编译期分叉
+  checkTrue("有 LAN_EDITION 编译期分支", /#if LAN_EDITION[\s\S]*?#else[\s\S]*?#endif/.test(launcher));
+  checkTrue("局域网版常量是 true", /LanEdition = true/.test(launcher));
+  checkTrue("本地版常量是 false", /LanEdition = false/.test(launcher));
+  checkTrue("绑定范围由版本决定", /var localOnly = !LanEdition;/.test(launcher));
+
+  // 本地版：只开本机窗口，不弹地址窗
+  checkTrue("本地版会找浏览器开窗口", /var browser = FindBrowser\(\);/.test(launcher));
+
+  // 局域网版：地址窗口就是主界面（Application.Run），并且不打开桌面窗口
+  checkTrue(
+    "局域网版用地址窗口作为主界面",
+    /Application\.Run\(BuildAccessForm\(lanUrls, firewallOk\)\)/.test(launcher)
+  );
+  checkTrue(
+    "局域网版分支里没有打开桌面浏览器窗口",
+    !/#if LAN_EDITION[\s\S]*?var browser = FindBrowser[\s\S]*?#else/.test(launcher)
+  );
+
+  // 防火墙只跟着局域网版走，并且用标记避免反复提权
+  checkTrue("局域网版会自动放行防火墙", /EnsureFirewall/.test(launcher));
+  checkTrue("防火墙走提权重启", /Verb = "runas"/.test(launcher));
+  checkTrue("用标记文件记录已放行的 exe 路径", /firewall-allowed\.txt/.test(launcher));
+  checkTrue("规则名按版本区分", /Bridge Observatory \(lan\)/.test(launcher) && /Bridge Observatory \(local\)/.test(launcher));
+  checkTrue("规则判断用退出码而不是本地化文案", /result\.Ok = process\.ExitCode == 0;/.test(launcher));
+
+  // 构建脚本产出两个 exe
+  checkTrue("构建脚本产出本地版", buildScript.includes('"桥见柳州.exe"'));
+  checkTrue("构建脚本产出局域网版", buildScript.includes('"桥见柳州-手机访问.exe"'));
+  checkTrue("局域网版编译时带 LAN_EDITION", /define: \?\`LAN_EDITION\`|LAN_EDITION/.test(buildScript));
+
+  // 根目录不要再有 .bat（旧入口会与两个 exe 混淆）
   const bats = fs.readdirSync(new URL("..", import.meta.url)).filter((name) => name.toLowerCase().endsWith(".bat"));
-  checkTrue("只剩一个启动脚本（LAN 能力已并进启动器）", bats.length === 1, bats.join(","));
-  checkTrue("启动脚本是 start.bat", bats[0] === "start.bat");
-
-  const startBat = await readFile("start.bat").catch(() => null);
-  checkTrue("start.bat 存在", Boolean(startBat));
-  if (startBat) {
-    const nonAscii = [...startBat].filter((char) => char.charCodeAt(0) > 127);
-    checkTrue(
-      "start.bat 是纯 ASCII（否则 cmd 会读成乱码）",
-      nonAscii.length === 0,
-      `发现 ${nonAscii.length} 个非 ASCII 字符`
-    );
-    checkTrue(
-      "start.bat 用通配符找启动器（不拼中文文件名）",
-      /for %%f in \("%~dp0\*\.exe"\)/.test(startBat)
-    );
-    checkTrue("start.bat 的 Node 兜底也开 LAN", /node server\.js --lan/.test(startBat));
-  }
-
-  // 启动器是唯一入口：源码里必须自己处理防火墙与 LAN
-  const launcher = await readFile("launcher/Program.cs").catch(() => "");
-  checkTrue("启动器默认绑定 0.0.0.0", /localOnly \? IPAddress\.Loopback : IPAddress\.Any/.test(launcher));
-  checkTrue("启动器自己确保防火墙放行", /EnsureFirewall/.test(launcher) && /advfirewall firewall add rule/.test(launcher));
-  checkTrue("启动器会提权（runas）以加规则", /Verb = "runas"/.test(launcher));
-  checkTrue("启动器提供手机地址窗口", /ShowAccessWindow/.test(launcher) && /Clipboard\.SetText/.test(launcher));
-  checkTrue("启动器有 --local 回退（只绑回环）", /--local/.test(launcher));
+  checkTrue("根目录不再有 .bat 入口", bats.length === 0, bats.join(","));
 }
 
 /* ---------------- 移动端启动：局域网地址筛选 ---------------- */
