@@ -28,8 +28,9 @@ body.app3d-active {
   inset: 0;
   z-index: 20;
   overflow: hidden;
+  /* 三维初始化完成前露出的底色，跟白天主题的天空接近，避免先黑后亮的闪烁 */
   background:
-    radial-gradient(120% 90% at 50% 8%, #12313d 0%, var(--a3d-bg) 58%, #041118 100%);
+    radial-gradient(120% 90% at 50% 8%, #eaf4f8 0%, #cfe4ee 58%, #a9c8d8 100%);
 }
 
 .app3d[hidden] {
@@ -48,7 +49,8 @@ body.app3d-active {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(115% 95% at 50% 45%, transparent 45%, rgba(3, 14, 19, 0.62) 100%);
+  /* 白天场景下压得太重会像蒙了灰，只留一点压角 */
+  background: radial-gradient(115% 95% at 50% 45%, transparent 58%, rgba(28, 52, 62, 0.26) 100%);
 }
 
 /* 顶部栏 */
@@ -164,6 +166,32 @@ body.app3d-active {
   background: #ffb281;
 }
 
+/* 占位按钮：昼夜切换尚未实现，只把位置和样式先占住。
+   虚线边框 + 低透明度 + 「开发中」角标，明确表示现在不可用，避免点了没反应像坏掉。 */
+.app3d-ghost--pending {
+  border-style: dashed;
+  color: var(--a3d-muted);
+  background: rgba(7, 26, 34, 0.42);
+  cursor: default;
+}
+
+.app3d-ghost--pending:hover,
+.app3d-ghost--pending:focus-visible {
+  border-color: var(--a3d-line);
+  color: var(--a3d-muted);
+}
+
+.app3d-pending {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  background: rgba(159, 216, 224, 0.18);
+  color: var(--a3d-muted);
+}
+
 /* 左下 HUD */
 
 .app3d-hud {
@@ -260,6 +288,7 @@ body.app3d-active {
   line-height: 1.6;
   text-align: right;
   color: rgba(143, 179, 182, 0.72);
+  text-shadow: 0 1px 3px rgba(4, 20, 27, 0.75), 0 0 12px rgba(4, 20, 27, 0.45);
 }
 
 /* 数据署名（ODbL 要求可见） */
@@ -274,6 +303,8 @@ body.app3d-active {
   line-height: 1.5;
   letter-spacing: 0.02em;
   color: rgba(143, 179, 182, 0.55);
+  /* 白天底色偏亮，小字要靠投影压住才看得清 */
+  text-shadow: 0 1px 3px rgba(4, 20, 27, 0.75), 0 0 12px rgba(4, 20, 27, 0.45);
 }
 
 .app3d-credit a {

@@ -643,6 +643,12 @@
           <a class="app3d-nav-item" data-nav="atlas" href="#atlas">城市总览</a>
           <a class="app3d-nav-item" data-nav="lab" href="#lab">结构实验室</a>
           <a class="app3d-nav-item" data-nav="archive" href="#archive">档案馆</a>
+          <button
+            class="app3d-ghost app3d-ghost--pending"
+            id="btnTheme"
+            type="button"
+            title="白天是当前配色；夜景模式还在制作中"
+          >昼夜<span class="app3d-pending">开发中</span></button>
           <button class="app3d-ghost" id="btnResetView" type="button">重置视角</button>
           <button class="app3d-ghost" id="btnBrowse" type="button">列表视图</button>
         </nav>
@@ -656,7 +662,7 @@
       </div>
 
       <p class="app3d-credit" id="sceneCredit">
-        地图数据 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer noopener">© OpenStreetMap contributors</a>（ODbL 1.0）
+        地图数据 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer noopener">© OpenStreetMap contributors</a>（ODbL 1.0） · 地形高程 SRTM / GMTED2010 <a href="https://www.usgs.gov/" target="_blank" rel="noreferrer noopener">courtesy of the U.S. Geological Survey</a>，瓦片 <a href="https://github.com/tilezen/joerd" target="_blank" rel="noreferrer noopener">Mapzen Joerd</a>（MIT）
       </p>
       <p class="app3d-status" id="sceneStatus" role="status" aria-live="polite"></p>
     </div>
