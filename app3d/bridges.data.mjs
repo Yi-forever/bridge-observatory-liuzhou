@@ -1,11 +1,14 @@
 /**
  * 自动生成，请勿手工编辑。
  *
- * 来源：app.js 里的 `const bridges = [...]`（2D 页面的权威数据）。
+ * 来源：app.js 里的顶层字面量（2D 页面的权威数据）——
+ *   bridges / comparisonProfiles / learningGoals / bridgeSources
+ *   / sourceLibrary / quizQuestions
  * 重新生成：node tools/build-bridge-data.mjs
  * 校验是否过期：node tools/build-bridge-data.mjs --check（tests 里也会跑）
  *
- * 3D 场景用这份数据渲染资料卡：别名、结构家族、规模、构件说明、观察要点。
+ * 3D 场景用这份数据渲染：桥梁资料卡、结构实验室的力流讲解与压拉配色、
+ * 档案馆的档案卡与知识点来源、以及知识挑战题库。
  */
 
 export const BRIDGES = [
@@ -228,6 +231,147 @@ export const BRIDGES = [
         "description": "桥墩与基础把上部结构的力量传到河床，保障整座桥长期稳定工作。"
       }
     ]
+  }
+];
+
+export const PROFILES = {
+  "girder": {
+    "force": "主梁主要受弯，桥墩受压",
+    "members": "桥面 · 主梁 · 桥墩 · 基础",
+    "scene": "城市道路、中等跨度跨江交通",
+    "question": "车辆荷载如何经主梁传给桥墩？"
+  },
+  "arch": {
+    "force": "拱肋主要受压，吊杆受拉",
+    "members": "桥面梁 · 吊杆 · 拱肋 · 拱座",
+    "scene": "需要较强跨越能力与景观表现",
+    "question": "为什么拱肋能把荷载变成压力？"
+  },
+  "continuous": {
+    "force": "连续箱梁受弯，多跨共同分担",
+    "members": "连续箱梁 · 支座 · 桥墩 · 基础",
+    "scene": "较长桥面、需要平顺行车体验",
+    "question": "相邻桥跨如何参与荷载分担？"
+  },
+  "cable": {
+    "force": "斜拉索受拉，主塔受压",
+    "members": "漂浮桥面 · 斜拉索 · 环形主塔 · 锚固区",
+    "scene": "大跨度、地标形象突出的城市桥梁",
+    "question": "斜拉索把桥面重量提向哪里？"
+  },
+  "pavilion": {
+    "force": "桥面梁受弯，风雨亭塑造公共空间",
+    "members": "风雨亭 · 连廊 · 桥面梁 · 桥墩",
+    "scene": "交通与文化形象并重的城市地标",
+    "question": "建筑造型与承重结构如何区分？"
+  }
+};
+
+export const GOALS = {
+  "girder": "学完后，你能说明车辆荷载如何经主梁、桥墩和基础传向地基。",
+  "arch": "学完后，你能解释拱肋为什么主要受压，以及吊杆如何把桥面提住。",
+  "continuous": "学完后，你能说明连续箱梁为什么能让相邻桥跨共同分担荷载。",
+  "cable": "学完后，你能区分斜拉索的拉力、主塔的受压和桥面的漂浮关系。",
+  "pavilion": "学完后，你能区分风雨亭的文化造型与桥梁的真实承重体系。"
+};
+
+export const SOURCES = {
+  "liujiang": [
+    1,
+    3
+  ],
+  "wenhui": [
+    1,
+    3
+  ],
+  "wenchang": [
+    3
+  ],
+  "baisha": [
+    1,
+    3
+  ],
+  "fenghuangling": [
+    2,
+    3
+  ]
+};
+
+export const SOURCE_LIBRARY = {
+  "1": {
+    "name": "广西新闻网",
+    "url": "http://www.gxnews.com.cn/staticpages/20180917/newgx5b9ee61c-17651300.shtml"
+  },
+  "2": {
+    "name": "澎湃新闻·柳州1号",
+    "url": "https://www.thepaper.cn/newsDetail_forward_16077854"
+  },
+  "3": {
+    "name": "柳州市文旅资料",
+    "url": "https://news.sohu.com/a/507612954_121106875"
+  }
+};
+
+export const QUIZ = [
+  {
+    "question": "柳江大桥建成于哪一年？",
+    "options": [
+      "1958年",
+      "1968年",
+      "1978年"
+    ],
+    "answer": 1,
+    "explanation": "柳江大桥于1968年建成通车，是柳州市区第一座跨江公路大桥。"
+  },
+  {
+    "question": "文惠桥最突出的结构特征是什么？",
+    "options": [
+      "中承式钢管混凝土拱桥",
+      "双塔悬索桥",
+      "全漂浮斜拉桥"
+    ],
+    "answer": 0,
+    "explanation": "文惠桥是广西第一座中承式钢管混凝土拱桥，弧形的拱肋是它最醒目的结构语言。"
+  },
+  {
+    "question": "连续梁桥把相邻桥跨连成整体，主要好处是什么？",
+    "options": [
+      "相邻桥跨可以共同分担荷载",
+      "完全不再需要桥墩",
+      "只依靠桥面铺装承重"
+    ],
+    "answer": 0,
+    "explanation": "连续箱梁跨越多个桥墩并连成整体，某一跨受力时，相邻桥跨也会参与分担。"
+  },
+  {
+    "question": "如何理解凤凰岭大桥的风雨亭与承重结构？",
+    "options": [
+      "风雨亭体现文化造型，交通荷载仍由桥梁结构承担",
+      "所有交通荷载由屋顶承担",
+      "风雨亭只是无作用的装饰"
+    ],
+    "answer": 0,
+    "explanation": "风雨亭提供遮阳避雨与公共空间，真正的交通荷载由桥面梁、桥墩和基础体系承担。"
+  },
+  {
+    "question": "斜拉桥中的斜拉索主要承受哪种力？",
+    "options": [
+      "压力",
+      "拉力",
+      "静摩擦力"
+    ],
+    "answer": 1,
+    "explanation": "斜拉索处于张紧状态，主要承受拉力，把桥面荷载提向主塔。"
+  },
+  {
+    "question": "拱桥的拱肋通常主要通过什么方式传力？",
+    "options": [
+      "沿拱轴传递压力",
+      "只靠吊杆承重",
+      "完全依靠桥墩抗拉"
+    ],
+    "answer": 0,
+    "explanation": "拱的形态使竖向荷载可以转化为沿拱轴方向的压力，再传到两岸拱座。"
   }
 ];
 

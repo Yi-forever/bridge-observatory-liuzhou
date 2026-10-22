@@ -11,7 +11,14 @@ import * as THREE from "../vendor/three/three.module.min.js";
 import { buildAtlas } from "../app3d/atlas.mjs";
 import { GEO } from "../app3d/geo.mjs";
 import { TERRAIN } from "../app3d/terrain.mjs";
-import { BRIDGES } from "../app3d/data.mjs";
+import {
+  BRIDGES,
+  PROFILES,
+  GOALS,
+  QUIZ,
+  SOURCES,
+  SOURCE_LIBRARY
+} from "../app3d/data.mjs";
 
 let failures = 0;
 
@@ -681,42 +688,52 @@ for (const [id, entry] of atlas.buildings) {
 /**
  * app.js 是 2D 页面的权威数据（经典脚本，不能 import），
  * app3d/bridges.data.mjs 由 tools/build-bridge-data.mjs 从它抽取。
- * 这里在测试里重做一次抽取并逐字段比对：只要有人改了 app.js 忘了重跑生成脚本，
- * 3D 资料卡就会立刻变成红的。
+ *
+ * 这里直接复用生成器的 `extractAll + renderModule` 重算一遍，与磁盘上的文件**逐字节比对**：
+ * 只要有人改了 app.js 忘了重跑生成脚本，立刻变红。
  */
 {
+  const { extractAll, renderModule } = await import("../tools/build-bridge-data.mjs");
+
   const source = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
-  const start = source.indexOf("const bridges = [");
-  checkTrue("app.js 里有权威 bridges 数据", start >= 0);
+  const picked = extractAll(source);
+  const expected = renderModule(picked);
+  const actual = fs
+    .readFileSync(new URL("../app3d/bridges.data.mjs", import.meta.url), "utf8")
+    .replace(/\r\n/g, "\n");
 
-  if (start >= 0) {
-    const literalStart = start + "const bridges = ".length;
-    const end = source.indexOf("\n];", literalStart);
-    checkTrue("app.js 的 bridges 数组有结尾", end > literalStart);
-    const literal = source.slice(literalStart, end + 3);
-    const fromApp = new Function(`return ${literal}`)();
-    const fromModule = JSON.parse(
-      fs.readFileSync(new URL("../app3d/bridges.data.mjs", import.meta.url), "utf8")
-        .match(/export const BRIDGES = ([\s\S]*?);\n\nexport const BRIDGE_BY_ID/)[1]
-    );
+  checkTrue(
+    "app3d/bridges.data.mjs 与 app.js 逐字节一致（不一致请跑 node tools/build-bridge-data.mjs）",
+    actual === expected,
+    `expected ${(expected.length / 1024).toFixed(1)} KB / actual ${(actual.length / 1024).toFixed(1)} KB`
+  );
 
-    checkTrue(
-      "app3d/bridges.data.mjs 与 app.js 完全一致（不一致请跑 node tools/build-bridge-data.mjs）",
-      JSON.stringify(fromApp) === JSON.stringify(fromModule),
-      `app=${fromApp.length} 座 module=${fromModule.length} 座`
-    );
+  // 3D 用到的数据都在
+  checkTrue("3D 使用的桥数与 2D 一致", BRIDGES.length === picked.BRIDGES.length, `${BRIDGES.length}`);
+  checkTrue("桥型档案齐全", Object.keys(PROFILES).length === 5, Object.keys(PROFILES).join(","));
+  checkTrue("题库非空", Array.isArray(QUIZ) && QUIZ.length >= 5, `${QUIZ && QUIZ.length}`);
+  checkTrue(
+    "每道题都有选项与答案解析",
+    QUIZ.every((item) => item.question && Array.isArray(item.options) && item.options.length >= 2 && typeof item.answer === "number" && item.explanation)
+  );
+  checkTrue(
+    "每座桥都有来源编号",
+    BRIDGES.every((bridge) => Array.isArray(SOURCES[bridge.id]) && SOURCES[bridge.id].length > 0),
+    JSON.stringify(SOURCES)
+  );
+  checkTrue(
+    "来源编号都能在来源库里找到",
+    BRIDGES.every((bridge) => SOURCES[bridge.id].every((index) => SOURCE_LIBRARY[index] && SOURCE_LIBRARY[index].name))
+  );
 
-    // 3D 场景拿到的就是这份数据
-    checkTrue("3D 使用的桥数与 2D 一致", BRIDGES.length === fromApp.length, `${BRIDGES.length}`);
-    for (const bridge of fromApp) {
-      const used = BRIDGES.find((item) => item.id === bridge.id);
-      checkTrue(`${bridge.id} 在 3D 数据里存在`, Boolean(used));
-      if (used) {
-        checkTrue(
-          `${bridge.id} 的构件说明可用于资料卡`,
-          Array.isArray(used.parts) && used.parts.length > 0 && used.parts.every((part) => part.label && part.description)
-        );
-      }
+  for (const bridge of picked.BRIDGES) {
+    const used = BRIDGES.find((item) => item.id === bridge.id);
+    checkTrue(`${bridge.id} 在 3D 数据里存在`, Boolean(used));
+    if (used) {
+      checkTrue(
+        `${bridge.id} 的构件说明可用于资料卡`,
+        Array.isArray(used.parts) && used.parts.length > 0 && used.parts.every((part) => part.label && part.description)
+      );
     }
   }
 }

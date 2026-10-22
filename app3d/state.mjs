@@ -4,8 +4,8 @@
  * 地址约定：
  *   #atlas                       城市总览
  *   #bridge/<id>                 单桥场景（可选 ?mode=force&explode=1）
- *   #lab                         结构实验室
- *   #archive                     档案馆
+ *   #lab?bridge=<id>&step=<n>    结构实验室（可选：当前实验桥、力流步骤）
+ *   #archive?bridge=<id>         档案馆（可选：聚焦某座桥）
  *   #browse                      列表视图（降级 / 无障碍）
  *   #bridge=<id>&mode=...        旧链接格式，读取时兼容并归一化
  */
@@ -75,9 +75,15 @@ export function parseHash(hash = window.location.hash) {
   }
 
   if (VIEWS.includes(head)) {
+    // 实验室与档案馆允许带一座桥：`#lab?bridge=baisha&step=2`
+    const requested = params.get("bridge");
+    const bridgeId = requested && BRIDGE_IDS.includes(requested) ? requested : null;
+    const stepRaw = Number.parseInt(params.get("step") || "", 10);
+    const step = Number.isInteger(stepRaw) && stepRaw >= 0 ? stepRaw : null;
     return {
       view: head,
-      bridgeId: null,
+      bridgeId,
+      step,
       mode: normalizeMode(params.get("mode")),
       exploded: params.get("explode") === "1",
       legacy: false
@@ -97,6 +103,14 @@ export function toHash(state) {
   const view = VIEWS.includes(state.view) ? state.view : "atlas";
   const mode = normalizeMode(state.mode); // 已移除的模式（如 night）不写进地址
   const params = new URLSearchParams();
+
+  // 实验室与档案馆用 ?bridge= 指定对象（不是路径段，避免与 #bridge/<id> 冲突）
+  if ((view === "lab" || view === "archive") && state.bridgeId) {
+    params.set("bridge", state.bridgeId);
+  }
+  if (view === "lab" && Number.isInteger(state.step) && state.step >= 0) {
+    params.set("step", String(state.step));
+  }
   if (mode !== "structure") params.set("mode", mode);
   if (state.exploded) params.set("explode", "1");
   const query = params.toString();
@@ -114,6 +128,7 @@ export function sameState(a, b) {
   return (
     a.view === b.view &&
     a.bridgeId === b.bridgeId &&
+    (a.step ?? null) === (b.step ?? null) &&
     a.mode === b.mode &&
     a.exploded === b.exploded
   );

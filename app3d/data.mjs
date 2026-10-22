@@ -1,14 +1,22 @@
 /**
  * 3D 场景的桥梁数据入口。
  *
- * 唯一权威来源是 app.js 里的 `const bridges = [...]`（2D 页面在用它），
+ * 唯一权威来源是 app.js 里的几个顶层字面量（2D 页面在用它），
  * 由 tools/build-bridge-data.mjs 抽成 ES 模块 app3d/bridges.data.mjs，
  * 这里只做再导出 + 场景需要的派生量。改动数据请改 app.js 后重跑生成脚本。
  */
 
-import { BRIDGES, BRIDGE_BY_ID } from "./bridges.data.mjs";
+import {
+  BRIDGES,
+  BRIDGE_BY_ID,
+  PROFILES,
+  GOALS,
+  SOURCES,
+  SOURCE_LIBRARY,
+  QUIZ
+} from "./bridges.data.mjs";
 
-export { BRIDGES, BRIDGE_BY_ID };
+export { BRIDGES, BRIDGE_BY_ID, PROFILES, GOALS, SOURCES, SOURCE_LIBRARY, QUIZ };
 
 export const BRIDGE_IDS = BRIDGES.map((bridge) => bridge.id);
 
