@@ -9,6 +9,7 @@
 
 import { BRIDGES, BRIDGE_BY_ID, PROFILES } from "./data.mjs";
 import { FORCE_LEGEND } from "./force-map.mjs";
+import { GOALS } from "./data.mjs";
 import { createLab } from "./lab.mjs";
 import { createPanel } from "./panel.mjs";
 import { createRouter, toHash } from "./state.mjs";
@@ -77,6 +78,9 @@ let labLoad = 0;
 let labLoadText = "";
 /** 受力配色开关（不写进 hash：属于临时观察方式）。 */
 let labForceColors = false;
+/** 实验室页签与对比对象（同样是临时状态）。 */
+let labTab = "experiment";
+let labCompare = { a: null, b: null };
 
 function stopLabPlayback() {
   if (labTimer !== null) {
@@ -379,6 +383,7 @@ function applyLab(state) {
     lab.hide();
     stopLabPlayback();
     labForceColors = false;
+    labTab = "experiment";
     return;
   }
 
@@ -399,7 +404,12 @@ function applyLab(state) {
     load: labLoad,
     loadText: labLoadText,
     forceColors: labForceColors,
-    showLoad: Boolean(scene && scene.setLabLoad)
+    showLoad: Boolean(scene && scene.setLabLoad),
+    tab: labTab,
+    compare: {
+      a: labCompare.a || bridgeId,
+      b: labCompare.b
+    }
   });
   applyLabVisuals(state);
 }
@@ -570,6 +580,19 @@ function boot() {
         if (lab) lab.show({ forceColors: labForceColors });
       },
       legend: FORCE_LEGEND,
+      goals: GOALS,
+      onSelectTab: (tab) => {
+        labTab = tab === "compare" ? "compare" : "experiment";
+        if (lab) lab.show({ tab: labTab, compare: { a: labCompare.a, b: labCompare.b } });
+      },
+      onSelectCompare: (slot, bridgeId) => {
+        if (slot !== "a" && slot !== "b") return;
+        labCompare = { ...labCompare, [slot]: bridgeId };
+        if (lab) lab.show({ compare: labCompare });
+      },
+      onFocusBridge: (bridgeId) => {
+        if (scene && scene.focusBridge) scene.focusBridge(bridgeId);
+      },
       onOpenBridge: (bridgeId) => {
         window.location.hash = `#bridge/${bridgeId}`;
       },
