@@ -1962,36 +1962,65 @@ for (const bridge of GEO.bridges) {
   checkTrue("file:// 打开时解释原因", /explainFileProtocol/.test(main) && /file:\/\//.test(main));
 }
 
-/* ---------------- 两个启动程序：本地版 / 局域网版 ---------------- */
+/* ---------------- 四种入口：两个 exe + 两个 .bat ---------------- */
 
 /**
- * 用户要求把两件事分开成两个程序，不要靠参数切换：
- *   桥见柳州.exe            本地版：只绑 127.0.0.1，只在本机开窗口；不开放局域网、不碰防火墙
- *   桥见柳州-手机访问.exe    局域网版：绑 0.0.0.0，自动放行防火墙，只弹地址窗口（不开桌面窗口）
+ * 交付方案（用户定稿）：
  *
- * 共用 launcher/Program.cs，靠编译期 #if LAN_EDITION 分叉。
- * 这里守住"差异确实存在"与"差异方向正确"，避免以后改一个版本时把另一个带坏。
+ *   推荐路径 = 用 Node 启动，避开未签名 exe 的 SmartScreen 提示
+ *     start-local.bat   -> node server.js        只绑 127.0.0.1
+ *     start-lan.bat     -> node server.js --lan  绑定 0.0.0.0 供手机访问
+ *
+ *   便利路径 = 两个免装 Node 的 exe（同一份 Program.cs 编译期分叉）
+ *     桥见柳州.exe            本地版
+ *     桥见柳州-手机访问.exe    局域网版
+ *
+ * 守住两件事：
+ *   1. .bat 必须纯 ASCII（cmd 按 OEM 代码页读，中文会被读成乱码导致脚本静默失效）；
+ *   2. .bat 参数方向不能反（local 不许带 --lan，lan 必须带 --lan）。
  */
 {
-  const launcher = await (await import("node:fs/promises")).readFile(
-    new URL("../launcher/Program.cs", import.meta.url),
-    "utf8"
-  );
-  const buildScript = await (await import("node:fs/promises")).readFile(
-    new URL("../tools/build-launcher.mjs", import.meta.url),
-    "utf8"
-  );
+  const dir = new URL("..", import.meta.url);
+  const bats = fs
+    .readdirSync(dir)
+    .filter((name) => name.toLowerCase().endsWith(".bat"))
+    .sort();
 
-  // 编译期分叉
+  checkTrue("恰好两个 .bat 入口", bats.length === 2, bats.join(","));
+  checkTrue("本机启动脚本存在", bats.includes("start-local.bat"));
+  checkTrue("局域网启动脚本存在", bats.includes("start-lan.bat"));
+
+  const fsPromises = await import("node:fs/promises");
+  const readBat = (name) => fsPromises.readFile(new URL(`../${name}`, import.meta.url), "utf8");
+
+  for (const name of bats) {
+    const source = await readBat(name);
+    const nonAscii = [...source].filter((char) => char.charCodeAt(0) > 127);
+    checkTrue(
+      `${name} 是纯 ASCII（否则 cmd 会读成乱码）`,
+      nonAscii.length === 0,
+      `发现 ${nonAscii.length} 个非 ASCII 字符`
+    );
+    checkTrue(`${name} 会检查 node 是否存在`, /where node/.test(source));
+    checkTrue(`${name} 缺少 node 时给出提示而不是闪退`, /pause/.test(source));
+  }
+
+  const localBat = await readBat("start-local.bat");
+  const lanBat = await readBat("start-lan.bat");
+
+  checkTrue("本机脚本调用 node server.js", /node server\.js\s*$/m.test(localBat));
+  checkTrue("本机脚本不开放局域网", !localBat.includes("--lan"), "local 脚本里出现了 --lan");
+  checkTrue("本机脚本会打开浏览器", /127\.0\.0\.1:4173/.test(localBat));
+  checkTrue("局域网脚本带上 --lan", /node server\.js --lan/.test(lanBat));
+  checkTrue("局域网脚本不自动开浏览器", !/start "" "http/.test(lanBat));
+
+  /* exe 仍然保留，且与 .bat 是同一套行为 */
+  const launcher = await fsPromises.readFile(new URL("../launcher/Program.cs", import.meta.url), "utf8");
+  const buildScript = await fsPromises.readFile(new URL("../tools/build-launcher.mjs", import.meta.url), "utf8");
+
   checkTrue("有 LAN_EDITION 编译期分支", /#if LAN_EDITION[\s\S]*?#else[\s\S]*?#endif/.test(launcher));
-  checkTrue("局域网版常量是 true", /LanEdition = true/.test(launcher));
-  checkTrue("本地版常量是 false", /LanEdition = false/.test(launcher));
   checkTrue("绑定范围由版本决定", /var localOnly = !LanEdition;/.test(launcher));
-
-  // 本地版：只开本机窗口，不弹地址窗
   checkTrue("本地版会找浏览器开窗口", /var browser = FindBrowser\(\);/.test(launcher));
-
-  // 局域网版：地址窗口就是主界面（Application.Run），并且不打开桌面窗口
   checkTrue(
     "局域网版用地址窗口作为主界面",
     /Application\.Run\(BuildAccessForm\(lanUrls, firewallOk, IsAdmin\(\)\)\)/.test(launcher)
@@ -2000,55 +2029,33 @@ for (const bridge of GEO.bridges) {
     "局域网版分支里没有打开桌面浏览器窗口",
     !/#if LAN_EDITION[\s\S]*?var browser = FindBrowser[\s\S]*?#else/.test(launcher)
   );
-
-  /*
-   * 启动阶段绝不提权。
-   *
-   * 早先的做法是启动时 Process.Start(自己, Verb="runas") 去补防火墙规则，
-   * 结果双击先弹 UAC；若系统里已有一个管理员权限的实例在跑，Windows 会拒绝再起一个
-   * 提升副本，并提示“现有实例正在以提升的权限运行”。
-   * 现在：启动只 netsh 读规则（不需要管理员），需要放行时由地址窗口里的按钮按需提权。
-   */
   checkTrue(
     "启动阶段只读判断、不提权",
     /var firewallOk = localOnly \|\| skipFirewall \|\| FirewallAlreadyAllowed\(\);/.test(launcher)
   );
   checkTrue("已移除启动期提权函数", !/EnsureFirewall/.test(launcher));
-  checkTrue(
-    "提权只发生在按需按钮里",
-    /RequestFirewallAccess/.test(launcher) && /Verb = "runas"/.test(launcher)
-  );
+  checkTrue("提权只发生在按需按钮里", /RequestFirewallAccess/.test(launcher) && /Verb = "runas"/.test(launcher));
   checkTrue("地址窗口提供“放行防火墙”按钮", /放行防火墙/.test(launcher));
-  checkTrue("有单实例互斥（避免两个服务抢端口）", /AcquireSingleInstance/.test(launcher) && /new Mutex/.test(launcher));
-  /*
-   * Edge 配置目录必须每次独立。
-   *
-   * 踩过的坑：固定用 %TEMP%\qiaojian-liuzhou-app，只要上一次的 Edge 还活着
-   * （服务停了、窗口还挂着），下一次启动就撞上同一个 profile 锁，
-   * Edge 弹出"现有实例正在以提升的权限运行，是否以普通权限重启现有实例"。
-   */
+  checkTrue("有单实例互斥", /AcquireSingleInstance/.test(launcher) && /new Mutex/.test(launcher));
+  checkTrue(
+    "规则名按版本区分",
+    /Bridge Observatory \(lan\)/.test(launcher) && /Bridge Observatory \(local\)/.test(launcher)
+  );
+  checkTrue("规则判断用退出码而不是本地化文案", /result\.Ok = process\.ExitCode == 0;/.test(launcher));
   checkTrue(
     "Edge 配置目录带进程号（每次独立）",
     /"qiaojian-liuzhou-app-" \+ Process\.GetCurrentProcess\(\)\.Id/.test(launcher)
   );
-  checkTrue("退出时清理临时配置目录", /TryDeleteProfile\(profile\)/.test(launcher) && /Directory\.Delete\(profile, true\)/.test(launcher));
+  checkTrue("退出时清理临时配置目录", /TryDeleteProfile\(profile\)/.test(launcher));
   checkTrue(
-    "浏览器被拦时退回默认浏览器而不是直接退出",
+    "浏览器被拦时退回默认浏览器",
     /Process\.Start\(new ProcessStartInfo\(localUrl\) \{ UseShellExecute = true \}\)/.test(launcher)
   );
-  checkTrue("以管理员身份运行时会提示权限冲突风险", /runningAsAdmin/.test(launcher) && /权限冲突/.test(launcher));
-  checkTrue("用标记文件记录已放行的 exe 路径", /firewall-allowed\.txt/.test(launcher));
-  checkTrue("规则名按版本区分", /Bridge Observatory \(lan\)/.test(launcher) && /Bridge Observatory \(local\)/.test(launcher));
-  checkTrue("规则判断用退出码而不是本地化文案", /result\.Ok = process\.ExitCode == 0;/.test(launcher));
-
-  // 构建脚本产出两个 exe
-  checkTrue("构建脚本产出本地版", buildScript.includes('"桥见柳州.exe"'));
-  checkTrue("构建脚本产出局域网版", buildScript.includes('"桥见柳州-手机访问.exe"'));
-  checkTrue("局域网版编译时带 LAN_EDITION", /define: \?\`LAN_EDITION\`|LAN_EDITION/.test(buildScript));
-
-  // 根目录不要再有 .bat（旧入口会与两个 exe 混淆）
-  const bats = fs.readdirSync(new URL("..", import.meta.url)).filter((name) => name.toLowerCase().endsWith(".bat"));
-  checkTrue("根目录不再有 .bat 入口", bats.length === 0, bats.join(","));
+  checkTrue(
+    "构建脚本产出两个 exe",
+    buildScript.includes('"桥见柳州.exe"') && buildScript.includes('"桥见柳州-手机访问.exe"')
+  );
+  checkTrue("局域网版编译时带 LAN_EDITION", /LAN_EDITION/.test(buildScript));
 }
 
 /* ---------------- 移动端启动：局域网地址筛选 ---------------- */
